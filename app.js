@@ -47,7 +47,7 @@ async function resumePlayback() {
             await selectEdition(window.resumeData.edition);
         }
         playSurah(window.resumeData.id, window.resumeData.url, window.resumeData.time);
-        showReadingView(window.resumeData.id, window.resumeData.time || 0);
+        showReadingView(window.resumeData.id, window.resumeData.edition || currentEdition, window.resumeData.time || 0);
     }
 }
 
@@ -219,13 +219,36 @@ const preloadAudioObj = new Audio();
 let preloadedSurahId  = null;
 
 // ── حالة شاشة القراءة والمزامنة ──
+// كل الروايات تعمل بنظام "سور" (نص السورة كاملة) ما عدا السوسي فيعمل بنظام
+// "أجزاء" لأن ملفات توقيته الصوتية مقسّمة لكل جزء وليست لكل سورة.
+const SUSI_EDITION_ID   = 6;
 
-let readingJuzNum      = null;   // رقم الجزء المعروض حالياً في شاشة القراءة
-let readingViewOpen    = false;  // هل شاشة القراءة مفتوحة
-let currentAyahIndex   = -1;     // فهرس الآية المظللة حالياً
-const juzDataCache     = {};     // تخزين مؤقت لكل جزء
-const QURAN_TEXT_API    = 'https://api.alquran.cloud/v1/juz/';
+let readingJuzNum       = null;   // رقم السورة أو الجزء المعروض حالياً في شاشة القراءة
+let readingEditionNum   = null;   // رقم الرواية المرتبطة بالعنصر المعروض حالياً
+let readingViewOpen     = false;  // هل شاشة القراءة مفتوحة
+let currentAyahIndex    = -1;     // فهرس الآية المظللة حالياً
+const juzDataCache      = {};     // تخزين مؤقت، المفتاح: "editionNum_id"
+const QURAN_JUZ_API     = 'https://api.alquran.cloud/v1/juz/';
+const QURAN_SURAH_API   = 'https://api.alquran.cloud/v1/surah/';
 const QURAN_TEXT_EDITION = 'quran-uthmani';
+
+// وضع القراءة الخاص برواية معيّنة: 'juz' للسوسي فقط، و'surah' لكل ما عداه
+function getReadingMode(editionNum) {
+    return editionNum === SUSI_EDITION_ID ? 'juz' : 'surah';
+}
+
+// مجلد ملفات توقيت الصوت الخاص بكل رواية، مبني على اسم ملفها
+// (مثال: susi.json → susi_time/، hafs.json → hafs_time/)
+function getTimeFolder(editionNum) {
+    const config = editionsConfig[editionNum];
+    if (!config || !config.file) return null;
+    return config.file.replace(/\.json$/i, '_time/');
+}
+
+function readingCacheKey(editionNum = readingEditionNum, id = readingJuzNum) {
+    if (editionNum === null || id === null) return null;
+    return `${editionNum}_${id}`;
+}
 
 // ── مصحف حفص (SVG + إحداثيات JSON) في شاشة الاستماع الهادئ ──
 // المجلد hafs/svg و hafs/json يحويان صفحات المصحف مرسومة بدقة عالية (طبعة حفص)
@@ -296,9 +319,15 @@ async function findMushafPage(surahNumber, ayahNumber) {
         if (data && ayahIsWithinPage(data, surahNumber, ayahNumber)) return candidate;
     }
 
-    const estimate = readingJuzNum
-        ? Math.max(1, Math.min(HAFS_MAX_PAGE, Math.round((readingJuzNum - 1) * (HAFS_MAX_PAGE / 30)) + 1))
-        : 1;
+    // تقدير أولي لموقع الصفحة: بحسب الجزء إن كانت الرواية الحالية بنظام الأجزاء (السوسي)،
+    // أو بحسب رقم السورة (تقريباً 5.3 صفحة لكل سورة في المتوسط) لبقية الروايات
+    const mode = getReadingMode(readingEditionNum);
+    let estimate = 1;
+    if (mode === 'juz' && readingJuzNum) {
+        estimate = Math.max(1, Math.min(HAFS_MAX_PAGE, Math.round((readingJuzNum - 1) * (HAFS_MAX_PAGE / 30)) + 1));
+    } else if (surahNumber) {
+        estimate = Math.max(1, Math.min(HAFS_MAX_PAGE, Math.round((surahNumber - 1) * (HAFS_MAX_PAGE / 114)) + 1));
+    }
 
     for (let radius = 0; radius <= 40; radius++) {
         for (const mid of (radius === 0 ? [estimate] : [estimate + radius, estimate - radius])) {
@@ -348,7 +377,7 @@ function onMushafHitClick(e) {
     if (!target) return;
     const surah = parseInt(target.dataset.surah, 10);
     const ayah  = parseInt(target.dataset.ayah, 10);
-    const data  = juzDataCache[readingJuzNum];
+    const data  = juzDataCache[readingCacheKey()];
     if (!data) return;
     const idx = data.segments.findIndex(s => s.surahNumber === surah && s.numberInSurah === ayah);
     if (idx >= 0) seekToAyah(idx);
@@ -857,9 +886,9 @@ function playSurah(id, url, startTime = 0, activateFocus = true) {
     playingEditionId = currentEdition;
     isBuffering      = true;
 
-    // إذا كانت شاشة القراءة مرتبطة بجزء آخر، حدّثها لتتابع الجزء الجديد تلقائياً
-    if (readingJuzNum !== null && readingJuzNum !== id) {
-        switchReadingJuz(id, startTime || 0);
+    // إذا كانت شاشة القراءة مفتوحة على عنصر آخر، حدّثها لتتابع العنصر الجديد تلقائياً
+    if (readingJuzNum !== null && (readingJuzNum !== id || readingEditionNum !== currentEdition)) {
+        switchReadingJuz(id, currentEdition, startTime || 0);
     } else {
         currentAyahIndex = -1;
     }
@@ -1230,59 +1259,93 @@ function stripLeadingBasmala(text) {
     return text;
 }
 
-async function fetchJuzText(juzId) {
-    const cacheKey = `quran_juz_text_${juzId}`;
+async function fetchReadingText(id, mode) {
+    const cacheKey = `quran_${mode}_text_${id}`;
+    const endpoint = mode === 'juz'
+        ? `${QURAN_JUZ_API}${id}/${QURAN_TEXT_EDITION}`
+        : `${QURAN_SURAH_API}${id}/${QURAN_TEXT_EDITION}`;
     try {
-        const res = await fetch(`${QURAN_TEXT_API}${juzId}/${QURAN_TEXT_EDITION}`);
+        const res = await fetch(endpoint);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         const ayahs = (json && json.data && Array.isArray(json.data.ayahs)) ? json.data.ayahs : [];
         if (ayahs.length) safeLocalSet(cacheKey, ayahs);
         return ayahs;
     } catch (e) {
-        console.warn('تعذر تحميل نص الجزء من الإنترنت، سيتم استخدام النسخة المخزّنة إن وجدت:', e);
+        console.warn(`تعذر تحميل النص (${mode} ${id}) من الإنترنت، سيتم استخدام النسخة المخزّنة إن وجدت:`, e);
         const cached = safeLocalGet(cacheKey);
         return cached || [];
     }
 }
 
-async function fetchJuzTimings(juzId) {
-    const fileName = `susi_time/${String(juzId).padStart(3, '0')}_timings.json`;
-    const res = await fetch(fileName);
-    if (!res.ok) throw new Error(`تعذر تحميل ملف التوقيتات: ${fileName}`);
-    return await res.json();
+// يحاول تحميل ملف توقيت الصوت الخاص برواية معيّنة. إن لم يوجد الملف بعد لهذه
+// الرواية (لم تُرفع توقيتاتها بعد) يعيد null دون رمي خطأ، لتظل شاشة القراءة
+// تعرض النص كاملاً بلا تظليل متزامن بدل أن تظهر فارغة.
+async function fetchReadingTimings(id, editionNum) {
+    const folder = getTimeFolder(editionNum);
+    if (!folder) return null;
+    const fileName = `${folder}${pad3(id)}_timings.json`;
+    try {
+        const res = await fetch(fileName);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (Array.isArray(data) && data.length) ? data : null;
+    } catch (e) {
+        console.warn(`لا يوجد ملف توقيت صوتي متاح بعد: ${fileName}`, e);
+        return null;
+    }
 }
 
-async function loadJuzReadingData(juzId) {
-    if (juzDataCache[juzId]) return juzDataCache[juzId];
+async function loadReadingData(id, editionNum) {
+    const cacheKey = readingCacheKey(editionNum, id);
+    if (juzDataCache[cacheKey]) return juzDataCache[cacheKey];
 
     const loadingEl   = document.getElementById('reading-loading');
     const containerEl = document.getElementById('ayat-container');
     if (loadingEl)   loadingEl.classList.add('show');
     if (containerEl) containerEl.innerHTML = '';
 
+    const mode = getReadingMode(editionNum);
+
     try {
-        const [ayahs, timings] = await Promise.all([fetchJuzText(juzId), fetchJuzTimings(juzId)]);
+        const [ayahs, timings] = await Promise.all([
+            fetchReadingText(id, mode),
+            fetchReadingTimings(id, editionNum)
+        ]);
 
-        if (!timings || !timings.length) {
-            throw new Error('ملف التوقيتات فارغ أو غير موجود لهذا الجزء');
+        let segments;
+        let hasTiming = false;
+
+        if (timings && timings.length) {
+            hasTiming = true;
+            if (ayahs.length && ayahs.length !== timings.length) {
+                console.warn(`عدم تطابق بين عدد الآيات (${ayahs.length}) وعدد مقاطع التوقيت (${timings.length}) للعنصر ${id}.`);
+            }
+            segments = timings.map((t, i) => {
+                const a = ayahs[i] || null;
+                return {
+                    start: t.start,
+                    end: t.end,
+                    text: (a && a.text) ? a.text : t.text,
+                    surahNumber: a ? a.surah.number : (mode === 'surah' ? id : null),
+                    surahName: a ? a.surah.name : null,
+                    numberInSurah: a ? a.numberInSurah : null
+                };
+            });
+        } else if (ayahs.length) {
+            // لا يوجد ملف توقيت صوتي لهذه الرواية بعد: نعرض النص كاملاً بدون
+            // تظليل متزامن مع الصوت (سيُفعَّل تلقائياً حالما تُرفع ملفات التوقيت)
+            segments = ayahs.map(a => ({
+                start: null,
+                end: null,
+                text: a.text,
+                surahNumber: a.surah ? a.surah.number : (mode === 'surah' ? id : null),
+                surahName: a.surah ? a.surah.name : null,
+                numberInSurah: a.numberInSurah
+            }));
+        } else {
+            segments = [];
         }
-
-        if (ayahs.length && ayahs.length !== timings.length) {
-            console.warn(`عدم تطابق بين عدد آيات الجزء ${juzId} (${ayahs.length}) وعدد مقاطع التوقيت (${timings.length}).`);
-        }
-
-        const segments = timings.map((t, i) => {
-            const a = ayahs[i] || null;
-            return {
-                start: t.start,
-                end: t.end,
-                text: (a && a.text) ? a.text : t.text,
-                surahNumber: a ? a.surah.number : null,
-                surahName: a ? a.surah.name : null,
-                numberInSurah: a ? a.numberInSurah : null
-            };
-        });
 
         let lastSurahForBasmala = null;
         segments.forEach((seg, i) => {
@@ -1294,12 +1357,12 @@ async function loadJuzReadingData(juzId) {
             }
         });
 
-        const data = { segments };
-        juzDataCache[juzId] = data;
+        const data = { segments, hasTiming };
+        juzDataCache[cacheKey] = data;
         return data;
     } catch (e) {
         console.error(e);
-        return { segments: [] };
+        return { segments: [], hasTiming: false };
     } finally {
         if (loadingEl) loadingEl.classList.remove('show');
     }
@@ -1343,7 +1406,7 @@ function renderReadingView(juzId, data) {
 }
 
 function updateReadingSurahTitle(idx) {
-    const data = juzDataCache[readingJuzNum];
+    const data = juzDataCache[readingCacheKey()];
     if (!data || !data.segments[idx]) return;
     const seg = data.segments[idx];
     const titleEl = document.getElementById('reading-surah-title');
@@ -1363,9 +1426,20 @@ function findSegmentIndex(segments, t) {
 }
 
 function updateHighlight(currentTime, forceImmediate = false) {
-    if (readingJuzNum === null || playingSurahId !== readingJuzNum) return;
-    const data = juzDataCache[readingJuzNum];
+    if (readingJuzNum === null || playingSurahId !== readingJuzNum || playingEditionId !== readingEditionNum) return;
+    const data = juzDataCache[readingCacheKey()];
     if (!data || !data.segments.length) return;
+
+    if (!data.hasTiming) {
+        // لا يوجد توقيت صوتي لهذه الرواية بعد: نعرض بداية السورة فقط دون
+        // تتبع مستمر لموضع الصوت (سيُفعَّل تلقائياً حالما تُرفع ملفات التوقيت)
+        if (forceImmediate && currentAyahIndex !== 0) {
+            currentAyahIndex = 0;
+            updateReadingSurahTitle(0);
+            updateMushafHighlight(data.segments[0]);
+        }
+        return;
+    }
 
     const idx = findSegmentIndex(data.segments, currentTime);
     if (idx === currentAyahIndex) return;
@@ -1390,8 +1464,9 @@ function updateHighlight(currentTime, forceImmediate = false) {
     updateMushafHighlight(data.segments[idx]);
 }
 
-async function switchReadingJuz(id, initialTime = null) {
+async function switchReadingJuz(id, editionNum, initialTime = null) {
     readingJuzNum = id;
+    readingEditionNum = editionNum;
     currentAyahIndex = -1;
     mushafCurrentPage = null;
     hideMushafView();
@@ -1400,12 +1475,12 @@ async function switchReadingJuz(id, initialTime = null) {
     const titleEl = document.getElementById('reading-juz-title');
     if (titleEl && sData) titleEl.textContent = getTrackName(sData);
 
-    const data = await loadJuzReadingData(id);
+    const data = await loadReadingData(id, editionNum);
     renderReadingView(id, data);
     updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
 }
 
-function showReadingView(juzId, initialTime = null) {
+function showReadingView(juzId, editionNum, initialTime = null) {
     const wasOpen = readingViewOpen;
     readingViewOpen = true;
     document.getElementById('reading-view')?.classList.add('show');
@@ -1417,14 +1492,15 @@ function showReadingView(juzId, initialTime = null) {
         history.pushState({ readingView: true }, '');
     }
 
-    if (readingJuzNum !== juzId || !juzDataCache[juzId]) {
-        switchReadingJuz(juzId, initialTime);
+    const cacheKey = readingCacheKey(editionNum, juzId);
+    if (readingJuzNum !== juzId || readingEditionNum !== editionNum || !juzDataCache[cacheKey]) {
+        switchReadingJuz(juzId, editionNum, initialTime);
     } else {
         currentAyahIndex = -1;
         updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
         
         setTimeout(() => {
-            if (readingViewOpen && readingJuzNum === juzId) {
+            if (readingViewOpen && readingJuzNum === juzId && readingEditionNum === editionNum) {
                 updateHighlight(audioInstance.currentTime, true);
             }
         }, 100);
@@ -1446,11 +1522,27 @@ function closeReadingView(fromHistory = false) {
 
 function seekToAyah(idx) {
     if (readingJuzNum === null) return;
-    const data = juzDataCache[readingJuzNum];
+    const data = juzDataCache[readingCacheKey()];
     if (!data || !data.segments[idx]) return;
 
-    const startTime = data.segments[idx].start;
-    const sameTrack = (playingSurahId === readingJuzNum && playingEditionId === currentEdition && audioInstance.src);
+    const seg = data.segments[idx];
+
+    // لا يوجد توقيت صوتي لهذه الرواية بعد: نكتفي بتظليل الآية على النص/المصحف
+    // دون القدرة على الانتقال الدقيق داخل الصوت
+    if (seg.start === null) {
+        currentAyahIndex = idx;
+        updateReadingSurahTitle(idx);
+        updateMushafHighlight(seg);
+        const sameTrack = (playingSurahId === readingJuzNum && playingEditionId === readingEditionNum && audioInstance.src);
+        if (!sameTrack) {
+            const sData = activeSurahsData.find(s => s.id === readingJuzNum);
+            if (sData) playSurah(sData.id, sData.url);
+        }
+        return;
+    }
+
+    const startTime = seg.start;
+    const sameTrack = (playingSurahId === readingJuzNum && playingEditionId === readingEditionNum && audioInstance.src);
 
     if (sameTrack) {
         audioInstance.currentTime = startTime;
@@ -1467,11 +1559,12 @@ function seekToAyah(idx) {
 }
 
 function openReadingJuz(id, url) {
-    const alreadyPlayingThis = (playingSurahId === id && playingEditionId === currentEdition);
+    const editionNum = currentEdition;
+    const alreadyPlayingThis = (playingSurahId === id && playingEditionId === editionNum);
     if (!alreadyPlayingThis) {
         playSurah(id, url);
     }
-    showReadingView(id);
+    showReadingView(id, editionNum);
 }
 
 // ── أحداث الشبكة ──
