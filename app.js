@@ -516,7 +516,7 @@ function renderSurahsList() {
                     ${currentLang === 'ar' ? 'يرجى اختيار الرواية من القائمة أعلاه للبدء' : 'Please choose an edition from the menu above to start'}
                 </p>
                 <p style="font-size: 0.9rem; color: var(--text-muted); opacity: 0.8;">
-                    ${currentLang === 'ar' ? 'استمتع بتلاوات الشيخ المعصراوي بالقراءات العشر' : 'Enjoy Sheikh Al-Ma\'asrawi\'s recitations in the ten readings'}
+                    ${currentLang === 'ar' ? 'استمتع بتلاوات الشيخ المعصراوي بالقراءات العشر' : 'Enjoy Sheikh Al-Ma\\'asrawi\\'s recitations in the ten readings'}
                 </p>
                 <style>
                     @keyframes bounceUp {
@@ -540,7 +540,7 @@ function renderSurahsList() {
         
         return `
             <div class="surah-row" data-id="${s.id}">
-                <div class="surah-info" onclick="playRowAudio(${s.id}, '${s.url}')" role="button" tabindex="0" aria-label="تشغيل ${displayName}" style="cursor:pointer;">
+                <div class="surah-info">
                     <span class="surah-number">${String(s.id).padStart(3, '0')}</span>
                     <span class="surah-name">${displayName}</span>
                 </div>
@@ -744,7 +744,7 @@ function playSurah(id, url, startTime = 0, activateFocus = true) {
     if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
             title:   sName,
-            artist:  currentLang === 'ar' ? 'الشيخ أحمد عيسى المعصراوي' : 'Sheikh Ahmed Eisa Al-Ma\'asrawi',
+            artist:  currentLang === 'ar' ? 'الشيخ أحمد عيسى المعصراوي' : 'Sheikh Ahmed Eisa Al-Ma\\'asrawi',
             album:   currentLang === 'ar' ? editionsConfig[currentEdition].nameAr : editionsConfig[currentEdition].nameEn,
             artwork: [{ src: 'maasrawi.jpg', sizes: '512x512', type: 'image/jpeg' }]
         });
@@ -1275,6 +1275,9 @@ function showReadingView(juzId, initialTime = null) {
     const wasOpen = readingViewOpen;
     readingViewOpen = true;
     document.getElementById('reading-view')?.classList.add('show');
+    
+    // تجميد الصفحة الرئيسية لمنعها من التحرك في الخلفية
+    document.body.classList.add('reading-active');
 
     // نسجّل حالة جديدة في تاريخ المتصفح عند فتح شاشة القراءة فعلياً (وليس عند مجرد تبديل الجزء وهي مفتوحة أصلاً)،
     // حتى يعمل زر الرجوع في الهاتف (والإيماءة) على إغلاقها بدلاً من الخروج من التطبيق
@@ -1303,6 +1306,9 @@ function showReadingView(juzId, initialTime = null) {
 function closeReadingView(fromHistory = false) {
     readingViewOpen = false;
     document.getElementById('reading-view')?.classList.remove('show');
+    
+    // إعادة تفعيل التمرير للصفحة الرئيسية عند الإغلاق
+    document.body.classList.remove('reading-active');
 
     if (!fromHistory && history.state && history.state.readingView) {
         history.back();
@@ -1730,4 +1736,3 @@ togglePlayPause = function (...args) {
         }
     }
 })();
-

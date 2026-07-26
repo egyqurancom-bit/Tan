@@ -1221,6 +1221,12 @@ body.focus-mode-active .top-bar {
    شاشة القراءة والمزامنة (Reading / Sync View)
    ================================================ */
 
+/* الفئة الخاصة بتجميد الصفحة الرئيسية */
+body.reading-active {
+    overflow: hidden !important;
+    height: 100dvh !important;
+}
+
 .reading-view {
     position: fixed;
     inset: 0;
@@ -1231,6 +1237,7 @@ body.focus-mode-active .top-bar {
     transform: translateY(12px);
     opacity: 0;
     transition: opacity 0.25s ease, transform 0.25s ease;
+    overscroll-behavior: none; /* يمنع السحب المطاطي الذي يظهر الخلفية */
 }
 
 .reading-view.show {
@@ -1733,4 +1740,3 @@ body:has(.reading-view.show) #global-player .playback-mode-btn {
 .surah-divider::before, .surah-divider::after {
     display: none; /* إزالة الخطوط الجانبية للحصول على شكل إطار نظيف */
 }
-
