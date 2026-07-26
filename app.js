@@ -228,9 +228,6 @@ let readingEditionNum   = null;   // رقم الرواية المرتبطة با
 let readingViewOpen     = false;  // هل شاشة القراءة مفتوحة
 let currentAyahIndex    = -1;     // فهرس الآية المظللة حالياً
 const juzDataCache      = {};     // تخزين مؤقت، المفتاح: "editionNum_id"
-const QURAN_JUZ_API     = 'https://api.alquran.cloud/v1/juz/';
-const QURAN_SURAH_API   = 'https://api.alquran.cloud/v1/surah/';
-const QURAN_TEXT_EDITION = 'quran-uthmani';
 
 // وضع القراءة الخاص برواية معيّنة: 'juz' للسوسي فقط، و'surah' لكل ما عداه
 function getReadingMode(editionNum) {
@@ -1207,80 +1204,67 @@ function finishDownloadUI(id) {
 }
 
 // ================================================
-// شاشة القراءة والمزامنة (نص القرآن + التوقيتات)
+// شاشة القراءة والمزامنة (صفحات المصحف الحقيقية + التوقيتات)
+// كل شيء هنا مربوط بالمجلدات المحلية الموجودة فعلياً (hafs/json و hafs/svg
+// ومجلد توقيت كل رواية إن وُجد) — لا يوجد أي استيراد لأي API خارجي لنص المصحف.
 // ================================================
 
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// عدد آيات كل سورة (1 إلى 114) وفق ترقيم مصحف حفص عن عاصم القياسي.
+// بيانات ثابتة معروفة، لا تعتمد على أي مصدر خارجي.
+const SURAH_AYAH_COUNTS = [
+    7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,111,110,98,135,
+    112,78,118,64,77,227,93,88,69,60,34,30,73,54,45,83,182,88,75,85,
+    54,53,89,59,37,35,38,29,18,45,60,49,62,55,78,96,29,22,24,13,
+    14,11,11,18,12,12,30,52,52,44,28,28,20,56,40,31,50,40,46,42,
+    29,19,36,25,22,17,19,26,30,20,15,21,11,8,8,19,5,8,8,11,
+    11,8,3,9,5,4,7,3,6,3,5,4,5,6
+];
 
-function bareSurahName(seg) {
-    if (!seg) return '';
-    if (currentLang === 'ar') {
-        return (seg.surahName || '').replace(/^\s*سورة\s+/, '').trim();
+// نقطة بداية كل جزء (رقم السورة/الآية) وفق التقسيم القياسي الثابت لـ30 جزءاً.
+const JUZ_START = [
+    {surah:1,ayah:1},   {surah:2,ayah:142}, {surah:2,ayah:253}, {surah:3,ayah:93},
+    {surah:4,ayah:24},  {surah:4,ayah:148}, {surah:5,ayah:82},  {surah:6,ayah:111},
+    {surah:7,ayah:88},  {surah:8,ayah:41},  {surah:9,ayah:93},  {surah:11,ayah:6},
+    {surah:12,ayah:53}, {surah:15,ayah:1},  {surah:17,ayah:1},  {surah:18,ayah:75},
+    {surah:21,ayah:1},  {surah:23,ayah:1},  {surah:25,ayah:21}, {surah:27,ayah:56},
+    {surah:29,ayah:46}, {surah:33,ayah:31}, {surah:36,ayah:28}, {surah:39,ayah:32},
+    {surah:41,ayah:47}, {surah:46,ayah:1},  {surah:51,ayah:31}, {surah:58,ayah:1},
+    {surah:67,ayah:1},  {surah:78,ayah:1}
+];
+
+// يبني قائمة (سورة، آية) بدءاً من نقطة معيّنة وحتى نقطة نهاية (غير شاملة)،
+// أو حتى نهاية القرآن إن لم تُحدَّد نهاية.
+function buildAyahRange(startSurah, startAyah, endSurah, endAyah) {
+    const list = [];
+    let s = startSurah, a = startAyah;
+    while (s <= 114) {
+        if (endSurah !== null && s === endSurah && a === endAyah) break;
+        list.push({ surah: s, ayah: a });
+        a++;
+        if (a > SURAH_AYAH_COUNTS[s - 1]) { s++; a = 1; }
     }
-    return surahNamesEn[seg.surahNumber] || (seg.surahName || '').replace(/^\s*سورة\s+/, '').trim();
+    return list;
 }
 
-const ARABIC_DIACRITICS_RE   = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u08D4-\u08E1\u08E3-\u08FF\u0670]/;
-const ARABIC_DIACRITICS_RE_G = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u08D4-\u08E1\u08E3-\u08FF\u0670]/g;
-
-function stripArabicDiacritics(str) {
-    return (str || '').replace(ARABIC_DIACRITICS_RE_G, '');
+function getSurahAyahList(surahNum) {
+    const count = SURAH_AYAH_COUNTS[surahNum - 1] || 0;
+    const list = [];
+    for (let a = 1; a <= count; a++) list.push({ surah: surahNum, ayah: a });
+    return list;
 }
 
-const BASMALA_PLAIN = stripArabicDiacritics('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ');
-
-function stripLeadingBasmala(text) {
-    if (!text) return text;
-    
-    const plainText = stripArabicDiacritics(text);
-    
-    if (plainText.startsWith(BASMALA_PLAIN)) {
-        let plainCount = 0;
-        let cutIndex = text.length;
-        for (let i = 0; i < text.length; i++) {
-            if (!ARABIC_DIACRITICS_RE.test(text[i])) plainCount++;
-            if (plainCount === BASMALA_PLAIN.length) { 
-                cutIndex = i + 1; 
-                break; 
-            }
-        }
-        const rest = text.slice(cutIndex).replace(/^[\s۞ۚۖۗۘۙۛ]+/, '').trim();
-        return rest || text;
-    }
-    
-    const basmalaPattern = /^بِسْمِ\s+اللَّهِ\s+الرَّحْمَٰنِ\s+الرَّحِيمِ\s*/;
-    if (basmalaPattern.test(text)) {
-        return text.replace(basmalaPattern, '').trim();
-    }
-
-    return text;
+function getJuzAyahList(juzNum) {
+    const start = JUZ_START[juzNum - 1];
+    if (!start) return [];
+    const next = JUZ_START[juzNum] || null;
+    return next
+        ? buildAyahRange(start.surah, start.ayah, next.surah, next.ayah)
+        : buildAyahRange(start.surah, start.ayah, null, null);
 }
 
-async function fetchReadingText(id, mode) {
-    const cacheKey = `quran_${mode}_text_${id}`;
-    const endpoint = mode === 'juz'
-        ? `${QURAN_JUZ_API}${id}/${QURAN_TEXT_EDITION}`
-        : `${QURAN_SURAH_API}${id}/${QURAN_TEXT_EDITION}`;
-    try {
-        const res = await fetch(endpoint);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        const ayahs = (json && json.data && Array.isArray(json.data.ayahs)) ? json.data.ayahs : [];
-        if (ayahs.length) safeLocalSet(cacheKey, ayahs);
-        return ayahs;
-    } catch (e) {
-        console.warn(`تعذر تحميل النص (${mode} ${id}) من الإنترنت، سيتم استخدام النسخة المخزّنة إن وجدت:`, e);
-        const cached = safeLocalGet(cacheKey);
-        return cached || [];
-    }
-}
-
-// يحاول تحميل ملف توقيت الصوت الخاص برواية معيّنة. إن لم يوجد الملف بعد لهذه
-// الرواية (لم تُرفع توقيتاتها بعد) يعيد null دون رمي خطأ، لتظل شاشة القراءة
-// تعرض النص كاملاً بلا تظليل متزامن بدل أن تظهر فارغة.
+// يحاول تحميل ملف توقيت الصوت الخاص برواية معيّنة من مجلدها المحلي. إن لم يوجد
+// الملف بعد لهذه الرواية (لم تُرفع توقيتاتها بعد) يعيد null دون رمي خطأ، لتظل
+// شاشة القراءة تعرض صفحة المصحف بلا تظليل متزامن بدل أن تظهر فارغة.
 async function fetchReadingTimings(id, editionNum) {
     const folder = getTimeFolder(editionNum);
     if (!folder) return null;
@@ -1300,108 +1284,49 @@ async function loadReadingData(id, editionNum) {
     const cacheKey = readingCacheKey(editionNum, id);
     if (juzDataCache[cacheKey]) return juzDataCache[cacheKey];
 
-    const loadingEl   = document.getElementById('reading-loading');
-    const containerEl = document.getElementById('ayat-container');
-    if (loadingEl)   loadingEl.classList.add('show');
-    if (containerEl) containerEl.innerHTML = '';
+    const mode     = getReadingMode(editionNum);
+    const ayahList = mode === 'juz' ? getJuzAyahList(id) : getSurahAyahList(id);
+    const timings  = await fetchReadingTimings(id, editionNum);
 
-    const mode = getReadingMode(editionNum);
+    let segments;
+    let hasTiming = false;
 
-    try {
-        const [ayahs, timings] = await Promise.all([
-            fetchReadingText(id, mode),
-            fetchReadingTimings(id, editionNum)
-        ]);
-
-        let segments;
-        let hasTiming = false;
-
-        if (timings && timings.length) {
-            hasTiming = true;
-            if (ayahs.length && ayahs.length !== timings.length) {
-                console.warn(`عدم تطابق بين عدد الآيات (${ayahs.length}) وعدد مقاطع التوقيت (${timings.length}) للعنصر ${id}.`);
-            }
-            segments = timings.map((t, i) => {
-                const a = ayahs[i] || null;
-                return {
-                    start: t.start,
-                    end: t.end,
-                    text: (a && a.text) ? a.text : t.text,
-                    surahNumber: a ? a.surah.number : (mode === 'surah' ? id : null),
-                    surahName: a ? a.surah.name : null,
-                    numberInSurah: a ? a.numberInSurah : null
-                };
-            });
-        } else if (ayahs.length) {
-            // لا يوجد ملف توقيت صوتي لهذه الرواية بعد: نعرض النص كاملاً بدون
-            // تظليل متزامن مع الصوت (سيُفعَّل تلقائياً حالما تُرفع ملفات التوقيت)
-            segments = ayahs.map(a => ({
-                start: null,
-                end: null,
-                text: a.text,
-                surahNumber: a.surah ? a.surah.number : (mode === 'surah' ? id : null),
-                surahName: a.surah ? a.surah.name : null,
-                numberInSurah: a.numberInSurah
-            }));
-        } else {
-            segments = [];
+    if (timings && timings.length) {
+        hasTiming = true;
+        if (timings.length !== ayahList.length) {
+            console.warn(`عدم تطابق بين عدد آيات العنصر ${id} (${ayahList.length}) وعدد مقاطع التوقيت (${timings.length}).`);
         }
-
-        let lastSurahForBasmala = null;
-        segments.forEach((seg, i) => {
-            if (seg.surahNumber !== null && seg.surahNumber !== lastSurahForBasmala) {
-                if (i > 0 && seg.surahNumber !== 1) {
-                    seg.text = stripLeadingBasmala(seg.text);
-                }
-                lastSurahForBasmala = seg.surahNumber;
-            }
+        // يقبل ملف التوقيت رقم السورة/الآية إن كان يوفّرهما بنفسه (ضروري لوضع
+        // الأجزاء)، وإلا يُستنتجان تلقائياً من ترتيب السورة (وضع السور).
+        segments = timings.map((t, i) => {
+            const ref = ayahList[i] || null;
+            return {
+                start: t.start,
+                end: t.end,
+                surahNumber: (t.surahNumber ?? t.surah ?? (ref ? ref.surah : null)),
+                numberInSurah: (t.numberInSurah ?? t.ayahNumber ?? (ref ? ref.ayah : null))
+            };
         });
-
-        const data = { segments, hasTiming };
-        juzDataCache[cacheKey] = data;
-        return data;
-    } catch (e) {
-        console.error(e);
-        return { segments: [], hasTiming: false };
-    } finally {
-        if (loadingEl) loadingEl.classList.remove('show');
+    } else {
+        segments = ayahList.map(ref => ({
+            start: null, end: null, surahNumber: ref.surah, numberInSurah: ref.ayah
+        }));
     }
+
+    const data = { segments, hasTiming };
+    juzDataCache[cacheKey] = data;
+    return data;
 }
 
-function renderReadingView(juzId, data) {
+// يعرض رسالة بديلة بسيطة في حال لم تُتوفَّر بعد صفحة المصحف الحقيقية لهذا
+// العنصر (سيتم استبدالها تلقائياً بصفحة المصحف الفعلية حال توفّرها محلياً).
+function renderReadingFallback(data) {
     const container = document.getElementById('ayat-container');
     if (!container) return;
-
-    if (!data.segments.length) {
-        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 10px;">
-            ${currentLang === 'ar' ? 'تعذر عرض النص لهذا الجزء' : 'Unable to display text for this juz'}
-        </p>`;
-        return;
-    }
-
-    let html = '';
-    let lastSurah  = undefined;
-    let blockOpen  = false;
-
-    data.segments.forEach((seg, i) => {
-        if (seg.surahNumber !== null && seg.surahNumber !== lastSurah) {
-            if (blockOpen) html += `</p>`;
-            const surahLabel = bareSurahName(seg);
-            html += `<div class="surah-divider">${surahLabel}</div><p class="ayah-block">`;
-            blockOpen = true;
-            lastSurah = seg.surahNumber;
-        } else if (!blockOpen) {
-            html += `<p class="ayah-block">`;
-            blockOpen = true;
-        }
-
-        const numBadge = seg.numberInSurah !== null ? `<span class="ayah-num">${seg.numberInSurah}</span>` : '';
-        html += `<span class="ayah-span" data-idx="${i}" onclick="seekToAyah(${i})">${escapeHtml(seg.text)}${numBadge}</span> `;
-    });
-
-    if (blockOpen) html += `</p>`;
-    container.innerHTML = html;
-
+    const msg = data.segments.length
+        ? (currentLang === 'ar' ? 'صفحة المصحف لهذا الموضع لم تُرفع بعد' : 'This mushaf page has not been uploaded yet')
+        : (currentLang === 'ar' ? 'تعذر تحميل بيانات هذا الموضع' : 'Unable to load this section');
+    container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 10px;">${msg}</p>`;
     currentAyahIndex = -1;
 }
 
@@ -1410,8 +1335,10 @@ function updateReadingSurahTitle(idx) {
     if (!data || !data.segments[idx]) return;
     const seg = data.segments[idx];
     const titleEl = document.getElementById('reading-surah-title');
-    if (titleEl && seg.surahName) {
-        titleEl.textContent = bareSurahName(seg);
+    if (titleEl && seg.surahNumber !== null) {
+        titleEl.textContent = surahNamesEn[seg.surahNumber]
+            ? (currentLang === 'ar' ? `سورة ${surahNamesEn[seg.surahNumber]}` : surahNamesEn[seg.surahNumber])
+            : '';
     }
 }
 
@@ -1444,21 +1371,6 @@ function updateHighlight(currentTime, forceImmediate = false) {
     const idx = findSegmentIndex(data.segments, currentTime);
     if (idx === currentAyahIndex) return;
 
-    const allAyahs = document.querySelectorAll('.ayah-span');
-    allAyahs.forEach(el => el.classList.remove('active-ayah'));
-
-    const newEl = document.querySelector(`.ayah-span[data-idx="${idx}"]`);
-    if (newEl) {
-        newEl.classList.add('active-ayah');
-        if (readingViewOpen) {
-            newEl.scrollIntoView({ 
-                behavior: forceImmediate ? 'auto' : 'smooth', 
-                block: 'center',
-                inline: 'nearest'
-            });
-        }
-    }
-
     currentAyahIndex = idx;
     updateReadingSurahTitle(idx);
     updateMushafHighlight(data.segments[idx]);
@@ -1476,7 +1388,7 @@ async function switchReadingJuz(id, editionNum, initialTime = null) {
     if (titleEl && sData) titleEl.textContent = getTrackName(sData);
 
     const data = await loadReadingData(id, editionNum);
-    renderReadingView(id, data);
+    renderReadingFallback(data);
     updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
 }
 
