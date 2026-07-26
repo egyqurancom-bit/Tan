@@ -1335,6 +1335,69 @@ body.reading-active {
     margin: 0 auto;
 }
 
+.ayat-container.mushaf-hidden {
+    display: none;
+}
+
+/* ================================================
+   صفحة المصحف الحقيقية (مجلد hafs: svg + json)
+   ================================================ */
+
+.mushaf-page-view {
+    display: none;
+    max-width: 460px;
+    margin: 0 auto;
+}
+
+.mushaf-page-view.show {
+    display: block;
+    animation: mushafFadeIn 0.3s ease-out;
+}
+
+@keyframes mushafFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.mushaf-page-wrap {
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    padding: 16px;
+}
+
+.mushaf-page-wrap svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* إعادة تلوين خطوط المصحف بحسب المظهر الفاتح/الداكن */
+.mushaf-page-wrap svg [fill] {
+    fill: var(--text-title);
+}
+
+.mushaf-page-wrap svg .mushaf-ayah-hit {
+    fill: transparent;
+    cursor: pointer;
+    transition: fill 0.35s ease;
+}
+
+.mushaf-page-wrap svg .mushaf-ayah-hit:hover {
+    fill: var(--accent-glow);
+}
+
+.mushaf-page-wrap svg .mushaf-ayah-hit.active-mushaf-ayah {
+    fill: var(--accent-glow);
+}
+
+@media (min-width: 640px) {
+    .mushaf-page-view {
+        max-width: 520px;
+    }
+}
+
 .surah-divider {
     display: flex;
     align-items: center;

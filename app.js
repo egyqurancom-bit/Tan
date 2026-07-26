@@ -227,6 +227,176 @@ const juzDataCache     = {};     // تخزين مؤقت لكل جزء
 const QURAN_TEXT_API    = 'https://api.alquran.cloud/v1/juz/';
 const QURAN_TEXT_EDITION = 'quran-uthmani';
 
+// ── مصحف حفص (SVG + إحداثيات JSON) في شاشة الاستماع الهادئ ──
+// المجلد hafs/svg و hafs/json يحويان صفحات المصحف مرسومة بدقة عالية (طبعة حفص)
+// مع إحداثيات كل آية داخل الصفحة، ويُستخدمان لعرض المصحف الحقيقي بدل النص العادي
+// مع تظليل الآية أثناء الاستماع. أي صفحة غير موجودة بعد على GitHub يتم تجاوزها
+// تلقائياً والرجوع للعرض النصي المعتاد (توافق تدريجي مع اكتمال الصفحات لاحقاً).
+const HAFS_SVG_PATH   = 'hafs/svg/';
+const HAFS_JSON_PATH  = 'hafs/json/';
+const HAFS_MAX_PAGE   = 604; // إجمالي صفحات المصحف عند اكتمال الرفع على GitHub
+
+const mushafPageJsonCache = {};      // pageNum -> بيانات آيات الصفحة
+const mushafPageSvgCache  = {};      // pageNum -> نص svg
+const mushafMissingPages  = new Set(); // صفحات تأكد عدم توفرها بعد
+const mushafAyahPageCache = {};      // "surah_ayah" -> pageNum
+let   mushafCurrentPage   = null;    // رقم الصفحة المعروضة حالياً في شاشة القراءة
+
+function pad3(n) { return String(n).padStart(3, '0'); }
+
+async function fetchMushafPageJson(pageNum) {
+    if (pageNum < 1 || pageNum > HAFS_MAX_PAGE) return null;
+    if (mushafPageJsonCache[pageNum]) return mushafPageJsonCache[pageNum];
+    if (mushafMissingPages.has(pageNum)) return null;
+    try {
+        const res = await fetch(`${HAFS_JSON_PATH}${pad3(pageNum)}.json`);
+        if (!res.ok) throw new Error('404');
+        const data = await res.json();
+        if (!Array.isArray(data) || !data.length) throw new Error('empty');
+        mushafPageJsonCache[pageNum] = data;
+        data.forEach(a => { mushafAyahPageCache[`${a.surahNumber}_${a.ayahNumber}`] = pageNum; });
+        return data;
+    } catch (e) {
+        mushafMissingPages.add(pageNum);
+        return null;
+    }
+}
+
+async function fetchMushafPageSvg(pageNum) {
+    if (mushafPageSvgCache[pageNum]) return mushafPageSvgCache[pageNum];
+    try {
+        const res = await fetch(`${HAFS_SVG_PATH}${pad3(pageNum)}.svg`);
+        if (!res.ok) throw new Error('404');
+        const text = await res.text();
+        mushafPageSvgCache[pageNum] = text;
+        return text;
+    } catch (e) {
+        return null;
+    }
+}
+
+function ayahIsWithinPage(pageData, surahNumber, ayahNumber) {
+    const first = pageData[0], last = pageData[pageData.length - 1];
+    const geFirst = (surahNumber > first.surahNumber) || (surahNumber === first.surahNumber && ayahNumber >= first.ayahNumber);
+    const leLast  = (surahNumber < last.surahNumber)  || (surahNumber === last.surahNumber  && ayahNumber <= last.ayahNumber);
+    return geFirst && leLast;
+}
+
+// يقدّر رقم الصفحة تبعاً لرقم الجزء الحالي (كل جزء ≈ 20 صفحة) كنقطة بداية للبحث،
+// ثم يبحث بشكل متوسّع حول التقدير حتى يجد الصفحة الفعلية التي تحوي الآية،
+// متجاوزاً أي صفحات غير مرفوعة بعد على GitHub.
+async function findMushafPage(surahNumber, ayahNumber) {
+    const key = `${surahNumber}_${ayahNumber}`;
+    if (mushafAyahPageCache[key] !== undefined) return mushafAyahPageCache[key];
+
+    // أسرع مسار: تحقق من الصفحة المعروضة حالياً ثم التي تليها (حالة الاستماع المتسلسل)
+    for (const candidate of [mushafCurrentPage, mushafCurrentPage ? mushafCurrentPage + 1 : null]) {
+        if (!candidate) continue;
+        const data = await fetchMushafPageJson(candidate);
+        if (data && ayahIsWithinPage(data, surahNumber, ayahNumber)) return candidate;
+    }
+
+    const estimate = readingJuzNum
+        ? Math.max(1, Math.min(HAFS_MAX_PAGE, Math.round((readingJuzNum - 1) * (HAFS_MAX_PAGE / 30)) + 1))
+        : 1;
+
+    for (let radius = 0; radius <= 40; radius++) {
+        for (const mid of (radius === 0 ? [estimate] : [estimate + radius, estimate - radius])) {
+            if (mid < 1 || mid > HAFS_MAX_PAGE) continue;
+            const data = await fetchMushafPageJson(mid);
+            if (data && ayahIsWithinPage(data, surahNumber, ayahNumber)) return mid;
+        }
+    }
+    return null;
+}
+
+function hideMushafView() {
+    document.getElementById('mushaf-page-view')?.classList.remove('show');
+    document.getElementById('ayat-container')?.classList.remove('mushaf-hidden');
+}
+
+function injectMushafHitLayer(wrap, pageData) {
+    const svgEl = wrap.querySelector('svg');
+    if (!svgEl || !pageData) return;
+    svgEl.removeAttribute('width');
+    svgEl.removeAttribute('height');
+    svgEl.style.width  = '100%';
+    svgEl.style.height = 'auto';
+    svgEl.style.display = 'block';
+
+    const ns = 'http://www.w3.org/2000/svg';
+    const layer = document.createElementNS(ns, 'g');
+    layer.setAttribute('id', 'mushaf-hit-layer');
+    pageData.forEach(a => {
+        const poly = document.createElementNS(ns, 'polygon');
+        poly.setAttribute('points', a.polygon);
+        poly.setAttribute('class', 'mushaf-ayah-hit');
+        poly.dataset.surah = a.surahNumber;
+        poly.dataset.ayah  = a.ayahNumber;
+        layer.appendChild(poly);
+    });
+    svgEl.appendChild(layer);
+
+    if (!wrap.dataset.clickBound) {
+        wrap.addEventListener('click', onMushafHitClick);
+        wrap.dataset.clickBound = '1';
+    }
+}
+
+function onMushafHitClick(e) {
+    const target = e.target.closest('.mushaf-ayah-hit');
+    if (!target) return;
+    const surah = parseInt(target.dataset.surah, 10);
+    const ayah  = parseInt(target.dataset.ayah, 10);
+    const data  = juzDataCache[readingJuzNum];
+    if (!data) return;
+    const idx = data.segments.findIndex(s => s.surahNumber === surah && s.numberInSurah === ayah);
+    if (idx >= 0) seekToAyah(idx);
+}
+
+function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
+    const layer = wrap.querySelector('#mushaf-hit-layer');
+    if (!layer) return;
+    layer.querySelectorAll('.mushaf-ayah-hit.active-mushaf-ayah').forEach(el => el.classList.remove('active-mushaf-ayah'));
+    const target = layer.querySelector(`.mushaf-ayah-hit[data-surah="${surahNumber}"][data-ayah="${ayahNumber}"]`);
+    if (target) {
+        target.classList.add('active-mushaf-ayah');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+}
+
+// يحاول عرض صفحة المصحف الحقيقية للآية الحالية؛ إن لم تتوفر بياناتها بعد
+// على GitHub يعود العرض تلقائياً إلى قائمة النص العادية.
+async function updateMushafHighlight(seg) {
+    const view = document.getElementById('mushaf-page-view');
+    const wrap = document.getElementById('mushaf-page-wrap');
+    if (!view || !wrap || !seg || seg.surahNumber === null || seg.numberInSurah === null) {
+        hideMushafView();
+        return;
+    }
+
+    const pageNum = await findMushafPage(seg.surahNumber, seg.numberInSurah);
+    if (!pageNum) {
+        hideMushafView();
+        return;
+    }
+
+    // تجاهل أي استجابة متأخرة إن كان المستخدم قد انتقل لجزء آخر أو أغلق الشاشة
+    if (!readingViewOpen) return;
+
+    if (mushafCurrentPage !== pageNum) {
+        const svgText = await fetchMushafPageSvg(pageNum);
+        if (!svgText || !readingViewOpen) { hideMushafView(); return; }
+        wrap.innerHTML = svgText;
+        mushafCurrentPage = pageNum;
+        injectMushafHitLayer(wrap, mushafPageJsonCache[pageNum]);
+    }
+
+    highlightMushafAyah(wrap, seg.surahNumber, seg.numberInSurah);
+    view.classList.add('show');
+    document.getElementById('ayat-container')?.classList.add('mushaf-hidden');
+}
+
 // ── معالجة الأسماء ──
 
 function getTrackName(sData) {
@@ -1217,11 +1387,14 @@ function updateHighlight(currentTime, forceImmediate = false) {
 
     currentAyahIndex = idx;
     updateReadingSurahTitle(idx);
+    updateMushafHighlight(data.segments[idx]);
 }
 
 async function switchReadingJuz(id, initialTime = null) {
     readingJuzNum = id;
     currentAyahIndex = -1;
+    mushafCurrentPage = null;
+    hideMushafView();
 
     const sData = activeSurahsData.find(s => s.id === id);
     const titleEl = document.getElementById('reading-juz-title');
@@ -1264,6 +1437,7 @@ function closeReadingView(fromHistory = false) {
     
     // إعادة تفعيل التمرير للصفحة الرئيسية عند الإغلاق
     document.body.classList.remove('reading-active');
+    mushafCurrentPage = null;
 
     if (!fromHistory && history.state && history.state.readingView) {
         history.back();
