@@ -175,8 +175,6 @@ let audioCtx, gainNode, audioSource;
 
 function initAudioBoost() {
     try {
-        // إذا لم يكن هناك crossOrigin، لا يمكننا استخدام Web Audio API (Visualizer/Boost) بسبب قيود الأمان
-        // سنكتفي بالتشغيل العادي بدون تضخيم الصوت إذا كان الرابط خارجياً ولا يدعم CORS
         if (!audioInstance.crossOrigin || audioInstance.crossOrigin === "null") {
             return;
         }
@@ -215,18 +213,18 @@ let activeDownloads    = {};
 
 let isDragging         = false;
 let currentSeekPct     = 0;
-let lastSaveTime       = 0; // متغير لحفظ الوقت الأخير
+let lastSaveTime       = 0;
 
 const preloadAudioObj = new Audio();
 let preloadedSurahId  = null;
 
 // ── حالة شاشة القراءة والمزامنة ──
 
-let readingJuzNum      = null;   // رقم الجزء المعروض حالياً في شاشة القراءة (يطابق s.id)
-let readingViewOpen    = false;  // هل شاشة القراءة مفتوحة على الشاشة حالياً
-let currentAyahIndex   = -1;     // فهرس الآية المظللة حالياً (يطابق index في ملف التوقيتات)
-const juzDataCache     = {};     // تخزين مؤقت لكل جزء: { segments: [...] }
-const QURAN_TEXT_API    = 'https://api.alquran.cloud/v1/juz/'; // مصدر نص القرآن الكريم (رواية حفص، رسم عثماني)
+let readingJuzNum      = null;   // رقم الجزء المعروض حالياً في شاشة القراءة
+let readingViewOpen    = false;  // هل شاشة القراءة مفتوحة
+let currentAyahIndex   = -1;     // فهرس الآية المظللة حالياً
+const juzDataCache     = {};     // تخزين مؤقت لكل جزء
+const QURAN_TEXT_API    = 'https://api.alquran.cloud/v1/juz/';
 const QURAN_TEXT_EDITION = 'quran-uthmani';
 
 // ── معالجة الأسماء ──
@@ -241,7 +239,6 @@ function getTrackName(sData) {
         return name;
     }
     
-    // إزالة كلمة "سورة" من بداية الاسم إن وجدت
     const cleanName = name.replace(/^\s*سورة\s+/, '').trim();
     const baseName = currentLang === 'ar' ? cleanName : (surahNamesEn[sData.id] || cleanName);
     return baseName;
@@ -508,15 +505,15 @@ function renderSurahsList() {
 
     if (!currentEdition) {
         container.innerHTML = `
-            <div class="choose-edition-msg" style="text-align: center; padding: 50px 20px; background: var(--bg-card); border-radius: 20px; margin: 20px 0; border: 2px dashed var(--primary-gold); animation: fadeIn 0.8s ease-out;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary-gold)" stroke-width="2" style="width: 50px; height: 50px; margin-bottom: 15px; animation: bounceUp 2s infinite;">
+            <div class="choose-edition-msg" style="text-align: center; padding: 50px 20px; background: var(--bg-card); border-radius: 20px; margin: 20px 0; border: 2px dashed var(--accent-gold); animation: fadeIn 0.8s ease-out;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold)" stroke-width="2" style="width: 50px; height: 50px; margin-bottom: 15px; animation: bounceUp 2s infinite;">
                     <path d="M12 19V5M5 12l7-7 7 7"/>
                 </svg>
-                <p style="font-size: 1.2rem; font-weight: 700; color: var(--primary-gold); margin-bottom: 5px; font-family: 'Cairo', sans-serif;">
+                <p style="font-size: 1.2rem; font-weight: 700; color: var(--accent-gold); margin-bottom: 5px; font-family: 'Cairo', sans-serif;">
                     ${currentLang === 'ar' ? 'يرجى اختيار الرواية من القائمة أعلاه للبدء' : 'Please choose an edition from the menu above to start'}
                 </p>
                 <p style="font-size: 0.9rem; color: var(--text-muted); opacity: 0.8;">
-                    ${currentLang === 'ar' ? 'استمتع بتلاوات الشيخ المعصراوي بالقراءات العشر' : 'Enjoy Sheikh Al-Ma\\'asrawi\\'s recitations in the ten readings'}
+                    ${currentLang === 'ar' ? 'استمتع بتلاوات الشيخ المعصراوي بالقراءات العشر' : 'Enjoy Sheikh Al-Ma\'asrawi\'s recitations in the ten readings'}
                 </p>
                 <style>
                     @keyframes bounceUp {
@@ -691,7 +688,6 @@ function playSurah(id, url, startTime = 0, activateFocus = true) {
     isBuffering      = true;
 
     // إذا كانت شاشة القراءة مرتبطة بجزء آخر، حدّثها لتتابع الجزء الجديد تلقائياً
-    // (يحدث هذا عند التالي/السابق أو الانتقال التلقائي بعد انتهاء المقطع)
     if (readingJuzNum !== null && readingJuzNum !== id) {
         switchReadingJuz(id, startTime || 0);
     } else {
@@ -744,7 +740,7 @@ function playSurah(id, url, startTime = 0, activateFocus = true) {
     if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
             title:   sName,
-            artist:  currentLang === 'ar' ? 'الشيخ أحمد عيسى المعصراوي' : 'Sheikh Ahmed Eisa Al-Ma\\'asrawi',
+            artist:  currentLang === 'ar' ? 'الشيخ أحمد عيسى المعصراوي' : 'Sheikh Ahmed Eisa Al-Ma\'asrawi',
             album:   currentLang === 'ar' ? editionsConfig[currentEdition].nameAr : editionsConfig[currentEdition].nameEn,
             artwork: [{ src: 'maasrawi.jpg', sizes: '512x512', type: 'image/jpeg' }]
         });
@@ -756,7 +752,6 @@ function playSurah(id, url, startTime = 0, activateFocus = true) {
     }
 }
 
-// تشغيل/إيقاف مقطع من زر التشغيل في القائمة مباشرةً — دون الانتقال إلى صفحة الاستماع الهادئ
 function playRowAudio(id, url) {
     playSurah(id, url, 0, false);
 }
@@ -767,7 +762,6 @@ function togglePlayPause(activateFocus = true) {
     initAudioBoost();
 
     if (audioInstance.paused && audioInstance.src) {
-        // تفعيل وضع الاستماع الهادئ فقط عند الضغط على تشغيل (إذا لم يكن مفعلاً)، ما لم يُطلب تخطي ذلك
         if (activateFocus && !isFocusMode) {
             toggleFocusMode(true);
         }
@@ -780,7 +774,6 @@ function togglePlayPause(activateFocus = true) {
             syncUIWithAudioState();
         });
     } else {
-        // عند الإيقاف المؤقت، نكتفي بإيقاف الصوت دون تغيير وضع الاستماع الهادئ
         audioInstance.pause();
     }
 }
@@ -807,7 +800,6 @@ audioInstance.addEventListener('waiting', () => { isBuffering = true;  syncUIWit
 audioInstance.addEventListener('playing', () => { isBuffering = false; syncUIWithAudioState(); });
 audioInstance.addEventListener('play',    () => { isBuffering = true;  syncUIWithAudioState(); });
 
-// حفظ الوقت الدقيق عند الإيقاف المؤقت
 audioInstance.addEventListener('pause',   () => { 
     isBuffering = false; 
     syncUIWithAudioState(); 
@@ -842,7 +834,6 @@ audioInstance.addEventListener('timeupdate', () => {
     const curr  = document.getElementById('curr-time');
     const total = document.getElementById('total-time');
 
-    // مزامنة تظليل الآية الحالية مع وقت التلاوة (شاشة القراءة)
     updateHighlight(audioInstance.currentTime);
 
     if (audioInstance.duration && !isDragging) {
@@ -853,7 +844,6 @@ audioInstance.addEventListener('timeupdate', () => {
 
         if (progressContainer) progressContainer.setAttribute('aria-valuenow', Math.round(pct));
 
-        // حفظ وقت التشغيل في الذاكرة كل 5 ثوانٍ
         if (Math.abs(audioInstance.currentTime - lastSaveTime) > 5) {
             if (playingSurahId) {
                 safeLocalSet('lastPlayedQuran', {
@@ -866,7 +856,6 @@ audioInstance.addEventListener('timeupdate', () => {
             lastSaveTime = audioInstance.currentTime;
         }
 
-        // تحميل مسبق للمقطع التالي
         if (playbackMode === 'autonext' && (audioInstance.duration - audioInstance.currentTime) < 15) {
             const idx = activeSurahsData.findIndex(s => s.id === playingSurahId);
             if (idx !== -1 && idx < activeSurahsData.length - 1) {
@@ -954,8 +943,6 @@ async function startDownload(id, url) {
     if (dlTitle) dlTitle.textContent = `${translations[currentLang].downloading} ${sName}...`;
     if (dlTrack) dlTrack.setAttribute('aria-valuenow', '0');
 
-    // ملاحظة هامة: شريط التحميل يتطلب تفعيل CORS من طرف الخادم (r2.dev).
-    // إذا لم يكن مفعلًا، سيتم التحميل مباشرة عبر المتصفح.
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.responseType = 'blob';
@@ -975,7 +962,7 @@ async function startDownload(id, url) {
             const objectUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = objectUrl;
-            a.download = `${sName}.mp4`; // تغيير الصيغة لـ m4a أو mp4 حسب الملف
+            a.download = `${sName}.mp4`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1029,7 +1016,6 @@ function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// اسم السورة "عاريًا" بدون أي بادئة (سورة / Surah) لتفادي التكرار، مثل: "الفاتحة" فقط
 function bareSurahName(seg) {
     if (!seg) return '';
     if (currentLang === 'ar') {
@@ -1037,8 +1023,6 @@ function bareSurahName(seg) {
     }
     return surahNamesEn[seg.surahNumber] || (seg.surahName || '').replace(/^\s*سورة\s+/, '').trim();
 }
-
-// ── إزالة البسملة من أول آية لسورة تبدأ داخل المقطع الصوتي ──
 
 const ARABIC_DIACRITICS_RE   = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u08D4-\u08E1\u08E3-\u08FF\u0670]/;
 const ARABIC_DIACRITICS_RE_G = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u08D4-\u08E1\u08E3-\u08FF\u0670]/g;
@@ -1049,12 +1033,9 @@ function stripArabicDiacritics(str) {
 
 const BASMALA_PLAIN = stripArabicDiacritics('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ');
 
-// تحذف البسملة من بداية النص إن وُجدت (بغض النظر عن التشكيل)، مع الحفاظ على بقية الآية كما هي
 function stripLeadingBasmala(text) {
     if (!text) return text;
     
-    // بعض الـ APIs قد تعيد البسملة في بداية الآية الأولى مفصولة أو مدمجة
-    // نقوم بتجريد النص من التشكيل للمقارنة
     const plainText = stripArabicDiacritics(text);
     
     if (plainText.startsWith(BASMALA_PLAIN)) {
@@ -1067,13 +1048,10 @@ function stripLeadingBasmala(text) {
                 break; 
             }
         }
-        // إزالة المسافات وعلامات الوقف من البداية بعد الحذف
         const rest = text.slice(cutIndex).replace(/^[\s۞ۚۖۗۘۙۛ]+/, '').trim();
         return rest || text;
     }
     
-    // محاولة إضافية: قد تكون البسملة متبوعة بمسافة أو حرف واو في بعض الرسم
-    // إذا لم ينجح الفحص السابق، نجرب البحث عن النمط
     const basmalaPattern = /^بِسْمِ\s+اللَّهِ\s+الرَّحْمَٰنِ\s+الرَّحِيمِ\s*/;
     if (basmalaPattern.test(text)) {
         return text.replace(basmalaPattern, '').trim();
@@ -1082,7 +1060,6 @@ function stripLeadingBasmala(text) {
     return text;
 }
 
-// جلب نص الجزء كاملاً من واجهة برمجية موثوقة (رواية حفص، رسم عثماني) مع ترقيم السور والآيات
 async function fetchJuzText(juzId) {
     const cacheKey = `quran_juz_text_${juzId}`;
     try {
@@ -1099,7 +1076,6 @@ async function fetchJuzText(juzId) {
     }
 }
 
-// جلب ملف توقيتات الجزء (كما هو دون أي تعديل) وتحميل الجزء الحالي فقط لتحسين الأداء
 async function fetchJuzTimings(juzId) {
     const fileName = `susi_time/${String(juzId).padStart(3, '0')}_timings.json`;
     const res = await fetch(fileName);
@@ -1107,7 +1083,6 @@ async function fetchJuzTimings(juzId) {
     return await res.json();
 }
 
-// تحميل بيانات جزء معيّن (نص + توقيتات) وربطهما آية بآية، مع معالجة أي اختلاف في العدد تلقائياً
 async function loadJuzReadingData(juzId) {
     if (juzDataCache[juzId]) return juzDataCache[juzId];
 
@@ -1124,7 +1099,6 @@ async function loadJuzReadingData(juzId) {
         }
 
         if (ayahs.length && ayahs.length !== timings.length) {
-            // تسجيل عدم التطابق فقط دون كسر التجربة — يتم الاعتماد على أقصر مصفوفة متاحة لكل موضع
             console.warn(`عدم تطابق بين عدد آيات الجزء ${juzId} (${ayahs.length}) وعدد مقاطع التوقيت (${timings.length}).`);
         }
 
@@ -1140,14 +1114,9 @@ async function loadJuzReadingData(juzId) {
             };
         });
 
-        // حذف البسملة من بداية أي سورة تبدأ داخل المقطع الصوتي (أي ليست أول ما في المقطع).
-        // أما إذا كانت السورة تقع في بداية المقطع (i === 0) أو كانت سورة الفاتحة (آيتها الأولى هي البسملة ذاتها)، فتبقى كما هي.
         let lastSurahForBasmala = null;
         segments.forEach((seg, i) => {
-            // إذا انتقلنا لسورة جديدة
             if (seg.surahNumber !== null && seg.surahNumber !== lastSurahForBasmala) {
-                // إذا كانت السورة ليست أول سورة في هذا المقطع (i > 0) وليست سورة الفاتحة
-                // نقوم بحذف البسملة من أول آية فيها (التي هي عادة أول آية نصية)
                 if (i > 0 && seg.surahNumber !== 1) {
                     seg.text = stripLeadingBasmala(seg.text);
                 }
@@ -1160,14 +1129,12 @@ async function loadJuzReadingData(juzId) {
         return data;
     } catch (e) {
         console.error(e);
-        showToast(currentLang === 'ar' ? 'تعذر تحميل نص هذا الجزء' : 'Failed to load this juz text');
         return { segments: [] };
     } finally {
         if (loadingEl) loadingEl.classList.remove('show');
     }
 }
 
-// رسم نص الجزء مقسّماً حسب السور، مع وسم كل آية برقم موضعها في ملف التوقيتات
 function renderReadingView(juzId, data) {
     const container = document.getElementById('ayat-container');
     if (!container) return;
@@ -1202,7 +1169,7 @@ function renderReadingView(juzId, data) {
     if (blockOpen) html += `</p>`;
     container.innerHTML = html;
 
-    currentAyahIndex = -1; // إعادة ضبط ليُعاد احتسابها عند أول تحديث للتظليل
+    currentAyahIndex = -1;
 }
 
 function updateReadingSurahTitle(idx) {
@@ -1215,7 +1182,6 @@ function updateReadingSurahTitle(idx) {
     }
 }
 
-// بحث ثنائي عن مقطع الآية المطابق للحظة زمنية معينة — لضمان دقة وسلاسة التظليل
 function findSegmentIndex(segments, t) {
     let lo = 0, hi = segments.length - 1, ans = 0;
     while (lo <= hi) {
@@ -1226,7 +1192,6 @@ function findSegmentIndex(segments, t) {
     return ans;
 }
 
-// تحديث تظليل الآية الحالية + التمرير التلقائي لإبقائها في منتصف الشاشة
 function updateHighlight(currentTime, forceImmediate = false) {
     if (readingJuzNum === null || playingSurahId !== readingJuzNum) return;
     const data = juzDataCache[readingJuzNum];
@@ -1235,14 +1200,12 @@ function updateHighlight(currentTime, forceImmediate = false) {
     const idx = findSegmentIndex(data.segments, currentTime);
     if (idx === currentAyahIndex) return;
 
-    // نزيل أي تظليل سابق لضمان بقاء آية واحدة فقط مظللة
     const allAyahs = document.querySelectorAll('.ayah-span');
     allAyahs.forEach(el => el.classList.remove('active-ayah'));
 
     const newEl = document.querySelector(`.ayah-span[data-idx="${idx}"]`);
     if (newEl) {
         newEl.classList.add('active-ayah');
-        // إذا كان الفتح فورياً أو تغيرت الآية، نقوم بالتمرير
         if (readingViewOpen) {
             newEl.scrollIntoView({ 
                 behavior: forceImmediate ? 'auto' : 'smooth', 
@@ -1256,7 +1219,6 @@ function updateHighlight(currentTime, forceImmediate = false) {
     updateReadingSurahTitle(idx);
 }
 
-// تحميل/تبديل شاشة القراءة على جزء معيّن (تحمّل ملف توقيتات هذا الجزء فقط)
 async function switchReadingJuz(id, initialTime = null) {
     readingJuzNum = id;
     currentAyahIndex = -1;
@@ -1270,7 +1232,6 @@ async function switchReadingJuz(id, initialTime = null) {
     updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
 }
 
-// فتح شاشة القراءة لجزء معيّن (يحمّل بياناته إن لم تكن محمّلة مسبقاً)
 function showReadingView(juzId, initialTime = null) {
     const wasOpen = readingViewOpen;
     readingViewOpen = true;
@@ -1279,8 +1240,6 @@ function showReadingView(juzId, initialTime = null) {
     // تجميد الصفحة الرئيسية لمنعها من التحرك في الخلفية
     document.body.classList.add('reading-active');
 
-    // نسجّل حالة جديدة في تاريخ المتصفح عند فتح شاشة القراءة فعلياً (وليس عند مجرد تبديل الجزء وهي مفتوحة أصلاً)،
-    // حتى يعمل زر الرجوع في الهاتف (والإيماءة) على إغلاقها بدلاً من الخروج من التطبيق
     if (!wasOpen) {
         history.pushState({ readingView: true }, '');
     }
@@ -1288,11 +1247,9 @@ function showReadingView(juzId, initialTime = null) {
     if (readingJuzNum !== juzId || !juzDataCache[juzId]) {
         switchReadingJuz(juzId, initialTime);
     } else {
-        // عند إعادة فتح الشاشة، نقوم بإعادة تعيين الفهرس لضمان تشغيل التمرير التلقائي فوراً
         currentAyahIndex = -1;
         updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
         
-        // محاولة إضافية لضمان التمرير بعد اكتمال رندر الصفحة
         setTimeout(() => {
             if (readingViewOpen && readingJuzNum === juzId) {
                 updateHighlight(audioInstance.currentTime, true);
@@ -1301,8 +1258,6 @@ function showReadingView(juzId, initialTime = null) {
     }
 }
 
-// إغلاق شاشة القراءة. عند الضغط على زر الرجوع في الشريط العلوي نستخدم history.back()
-// ليعمل بالتناسق مع زر رجوع الهاتف (fromHistory = true تعني أن الإغلاق جاء من حدث popstate بالفعل)
 function closeReadingView(fromHistory = false) {
     readingViewOpen = false;
     document.getElementById('reading-view')?.classList.remove('show');
@@ -1315,7 +1270,6 @@ function closeReadingView(fromHistory = false) {
     }
 }
 
-// الضغط على أي آية: تشغيل الصوت مباشرة من توقيت بدايتها
 function seekToAyah(idx) {
     if (readingJuzNum === null) return;
     const data = juzDataCache[readingJuzNum];
@@ -1338,7 +1292,6 @@ function seekToAyah(idx) {
     updateHighlight(startTime, true);
 }
 
-// فتح شاشة القراءة المزامنة عند الضغط على جزء من القائمة (وتشغيله إن لم يكن قيد التشغيل)
 function openReadingJuz(id, url) {
     const alreadyPlayingThis = (playingSurahId === id && playingEditionId === currentEdition);
     if (!alreadyPlayingThis) {
@@ -1393,12 +1346,10 @@ window.addEventListener('appinstalled', () => {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').then(registration => {
-            // التحقق من وجود تحديثات كلما فتح المستخدم التطبيق
             registration.addEventListener('updatefound', () => {
                 const newWorker = registration.installing;
                 newWorker.addEventListener('statechange', () => {
                     if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                        // إظهار توست للمستخدم يخبره بوجود تحديث
                         showToast(currentLang === 'ar' ? "تم تحميل تحديث جديد، جاري التنشيط..." : "New update loaded, activating...");
                         setTimeout(() => {
                             window.location.reload();
@@ -1413,31 +1364,27 @@ if ('serviceWorker' in navigator) {
 // ================================================
 // الإذاعة المباشرة الوهمية (Pseudo Live Radio)
 // ================================================
-// فكرة العمل: كل الأجهزة تحسب نفس "الموضع الافتراضي" داخل حلقة تشغيل
-// لا نهائية بالاعتماد فقط على الوقت الحقيقي Date.now() ومدد الملفات
-// الفعلية، بدون أي حفظ لموضع المستخدم. أي مستخدمين يفتحان الإذاعة في
-// نفس اللحظة سيسمعان نفس المقطع في نفس الثانية تقريباً.
 
 const radioAudio = new Audio();
 radioAudio.preload = 'none';
 
 const radioState = {
-    playlist: [],       // [{ title, url, duration }]
-    cumulative: [],     // بداية كل ملف بالثواني من أول الحلقة
-    totalDuration: 0,   // إجمالي مدة الحلقة بالثواني
-    ready: false,       // هل تم قياس كل المدد الفعلية بنجاح
+    playlist: [],
+    cumulative: [],
+    totalDuration: 0,
+    ready: false,
     loading: false,
     currentIndex: -1,
     isPlaying: false,
     resyncTimer: null
 };
 
-// قياس مدة ملف صوتي واحد فعلياً (metadata فقط دون تحميل الملف كاملاً)
 function probeAudioDuration(url) {
     return new Promise((resolve) => {
         const probe = new Audio();
         probe.preload = 'metadata';
         let settled = false;
+        let retried = false;
 
         const finish = (dur) => {
             if (settled) return;
@@ -1446,38 +1393,75 @@ function probeAudioDuration(url) {
             resolve(dur);
         };
 
-        probe.addEventListener('loadedmetadata', () => {
-            finish(isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 0);
-        });
-        probe.addEventListener('error', () => finish(0));
-        // مهلة أمان في حال بطء الشبكة
+        const tryOnce = () => {
+            probe.addEventListener('loadedmetadata', () => {
+                finish(isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 0);
+            }, { once: true });
+            probe.addEventListener('error', () => {
+                // إعادة محاولة واحدة فقط قبل الاستسلام، فقد يكون الفشل الأول
+                // مؤقتاً (تقييد مؤقت من نطاق r2.dev التجريبي مثلاً)
+                if (!retried) {
+                    retried = true;
+                    setTimeout(() => { probe.src = url; }, 400);
+                } else {
+                    finish(0);
+                }
+            }, { once: true });
+        };
+
+        tryOnce();
         setTimeout(() => finish(isFinite(probe.duration) && probe.duration > 0 ? probe.duration : 0), 12000);
 
         probe.src = url;
     });
 }
 
-// تجهيز قائمة تشغيل الإذاعة وحساب مدد الملفات الفعلية مرة واحدة
-async function loadRadioPlaylist() {
-    if (radioState.ready || radioState.loading) return radioState.ready;
-    radioState.loading = true;
-
-    try {
-        const res = await fetch('radio.json', { cache: 'no-store' });
-        const list = await res.json();
-
-        const withDurations = await Promise.all(
-            list.map(async (item) => ({
+// جلب مدد ملفات الإذاعة على دفعات محدودة بدلاً من إرسال 30 طلباً
+// متزامناً دفعة واحدة، لتقليل احتمال تقييد الطلبات من مزود الاستضافة
+async function probeAllDurations(list, batchSize = 5) {
+    const results = [];
+    for (let i = 0; i < list.length; i += batchSize) {
+        const batch = list.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+            batch.map(async (item) => ({
                 title: item.title,
                 url: item.url,
                 duration: await probeAudioDuration(item.url)
             }))
         );
+        results.push(...batchResults);
+    }
+    return results;
+}
 
-        // استبعاد أي ملف تعذر قياس مدته لتفادي كسر حساب المواضع
+const RADIO_CACHE_KEY = 'cache_radio_playlist_v1';
+
+async function loadRadioPlaylist() {
+    if (radioState.ready || radioState.loading) return radioState.ready;
+    radioState.loading = true;
+
+    // استخدام النسخة المخزّنة فوراً إن وُجدت، حتى لا نضطر لإعادة قياس
+    // مدة 30 ملفاً صوتياً في كل مرة يُفتح فيها التطبيق أو تُضغط الإذاعة
+    const cached = safeLocalGet(RADIO_CACHE_KEY);
+    if (cached && Array.isArray(cached.playlist) && cached.playlist.length) {
+        radioState.playlist      = cached.playlist;
+        radioState.cumulative    = cached.cumulative;
+        radioState.totalDuration = cached.totalDuration;
+        radioState.ready         = true;
+        radioState.loading       = false;
+        return true;
+    }
+
+    try {
+        const res = await fetch('radio.json', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`تعذّر جلب radio.json: HTTP ${res.status}`);
+        const list = await res.json();
+        if (!Array.isArray(list) || !list.length) throw new Error('radio.json فارغ أو غير صالح');
+
+        const withDurations = await probeAllDurations(list, 5);
         const valid = withDurations.filter(f => f.duration > 0);
 
-        if (!valid.length) throw new Error('no valid radio files');
+        if (!valid.length) throw new Error('تعذّر تحميل أي ملف من ملفات الإذاعة (تحقق من روابط r2.dev أو استخدم نطاقاً مخصصاً بدلاً من نطاق r2.dev التجريبي)');
 
         let cum = 0;
         const cumulative = [];
@@ -1487,6 +1471,8 @@ async function loadRadioPlaylist() {
         radioState.cumulative     = cumulative;
         radioState.totalDuration  = cum;
         radioState.ready          = true;
+
+        safeLocalSet(RADIO_CACHE_KEY, { playlist: valid, cumulative, totalDuration: cum });
         return true;
     } catch (e) {
         console.warn('Radio playlist load error:', e);
@@ -1497,7 +1483,6 @@ async function loadRadioPlaylist() {
     }
 }
 
-// حساب الموضع الحالي (رقم الملف + الثانية داخله) اعتماداً فقط على الوقت الحقيقي
 function computeLivePosition() {
     const totalMs = radioState.totalDuration * 1000;
     if (!totalMs) return { index: 0, offset: 0 };
@@ -1547,7 +1532,6 @@ function setOnAirIndicator(on) {
     document.getElementById('radio-eq')?.classList.toggle('playing', on);
 }
 
-// تشغيل الملف المناسب للحظة الحالية فعلياً على عنصر الصوت
 function tuneInToLivePosition() {
     const { index, offset } = computeLivePosition();
     const file = radioState.playlist[index];
@@ -1568,15 +1552,11 @@ function tuneInToLivePosition() {
     radioAudio.load();
 }
 
-// عند انتهاء ملف طبيعياً، ننتقل للملف التالي (وللأول عند نهاية الحلقة)،
-// مع إعادة الحساب من الوقت الحقيقي لتفادي أي انزياح تراكمي
 function handleRadioFileEnded() {
     if (!radioState.isPlaying) return;
     tuneInToLivePosition();
 }
 
-// تصحيح دوري لأي انزياح ناتج عن التخزين المؤقت/البطء الشبكي، حتى يبقى
-// المستمعون متزامنين مع بعضهم البعض ومع الوقت الحقيقي
 function startRadioResync() {
     stopRadioResync();
     radioState.resyncTimer = setInterval(() => {
@@ -1600,15 +1580,11 @@ function stopRadioResync() {
 }
 
 async function startRadio() {
-    // إيقاف مشغل السور الرئيسي حتى لا يتداخل الصوتان
     if (!audioInstance.paused) {
         audioInstance.pause();
         playingSurahId = null;
         updateSurahListUI();
     }
-
-    // لا نقوم بإظهار المشغل السفلي هنا بناءً على طلب المستخدم
-    // يبقى كل شيء كما هو وتعمل الإذاعة في الخلفية
 
     setRadioLoadingUI(true);
     const ok = await loadRadioPlaylist();
@@ -1652,8 +1628,6 @@ function openRadioPanel() {
 
 function closeRadioPanel() {
     document.getElementById('radio-modal')?.classList.remove('show');
-    // إغلاق الإذاعة يوقف الصوت تماماً، ولا نحفظ أي موضع؛ في المرة القادمة
-    // سيُعاد حساب الموضع الحي من جديد اعتماداً على الوقت الفعلي فقط
     pauseRadio();
 }
 
@@ -1664,7 +1638,6 @@ radioAudio.addEventListener('error', () => {
     if (radioState.isPlaying) showToast(translations[currentLang].networkError);
 });
 
-// إيقاف الإذاعة تلقائياً إذا بدأ المستخدم تشغيل سورة من المشغل الرئيسي
 const _originalPlaySurah = playSurah;
 playSurah = function (...args) {
     if (radioState.isPlaying) pauseRadio();
@@ -1687,26 +1660,20 @@ togglePlayPause = function (...args) {
     const themeBtn = document.getElementById('theme-toggle-btn');
     if (themeBtn) themeBtn.innerHTML = currentTheme === 'dark' ? icons.moon : icons.sun;
 
-    // تجهيز مدد ملفات الإذاعة في الخلفية دون تشغيل أي شيء، حتى يكون
-    // حساب الموضع الحي جاهزاً فوراً عند فتح الإذاعة لأول مرة
-    loadRadioPlaylist();
+    // ملاحظة: تم إزالة استدعاء loadRadioPlaylist() هنا لأنه كان يجلب
+    // radio.json ويحاول قياس مدة كل ملف صوتي فور فتح التطبيق، وأي فشل
+    // في ذلك (حتى لو مؤقت) كان يظهر رسالة "خطأ في الاتصال" فوراً
+    // للمستخدم رغم أنه لم يطلب تشغيل الإذاعة بعد. الآن يتم تحميل
+    // قائمة الإذاعة فقط عند طلب المستخدم تشغيلها (داخل startRadio).
 
     setPlaybackMode('autonext');
 
-    // تم تعطيل استعادة الرواية من الذاكرة ليكون الاختيار يدوياً دائماً عند فتح التطبيق
-    /*
-    const savedEdition = safeLocalGet('maasrawi_edition');
-    if (savedEdition && editionsConfig[savedEdition]) {
-        currentEdition = savedEdition;
-    }
-    */
-    
     updateDropdownUI();
     if (currentEdition) {
         await loadEditionData(currentEdition);
         updateFocusHeader();
     } else {
-        renderSurahsList(); // ستعرض قائمة فارغة أو رسالة
+        renderSurahsList(); 
     }
 
     const savedState = safeLocalGet('lastPlayedQuran');
@@ -1723,7 +1690,6 @@ togglePlayPause = function (...args) {
             if (resumeText) resumeText.textContent = promptText;
             
             document.getElementById('resume-banner')?.classList.add('show');
-            // إرفاق الوقت المحفوظ إلى بيانات الاستئناف
             window.resumeData = { 
                 id: sData.id, 
                 url: sData.url, 

@@ -618,7 +618,7 @@ html[dir="ltr"] .dropdown-item.active {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 14px;
+    padding: 10px 14px;
     background: var(--bg-card);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-sm);
