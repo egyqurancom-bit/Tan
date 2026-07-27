@@ -674,6 +674,180 @@ function resumeMushafFollow() {
     }
 }
 
+// ── تقليب صفحة المصحف بالسحب: يتبع الصفحة إصبع المستخدم لحظياً، وتظهر
+// الصفحة المجاورة (تالية أو سابقة) بشكل تدريجي وسلس أثناء السحب نفسه، بدل
+// القفز الفجائي بعد رفع الإصبع فقط. عند رفع الإصبع: إمّا إكمال التقليب حتى
+// النهاية إن تجاوز السحب الحد الأدنى (مسافة أو سرعة)، أو العودة السلسة لمكانها.
+let mushafDrag = null;
+
+function mushafDragApply() {
+    if (!mushafDrag) return;
+    const { wrap, incomingEl, dx, dir, width } = mushafDrag;
+    wrap.style.transform = `translateX(${dx}px)`;
+    if (incomingEl) {
+        incomingEl.style.transform = `translateX(${dx - dir * width}px)`;
+    }
+}
+
+function mushafDragEnsureIncoming(dir) {
+    if (!mushafDrag || mushafDrag.dir === dir) return;
+    const track = document.getElementById('mushaf-page-track');
+    if (!track) return;
+    if (mushafDrag.incomingEl) {
+        mushafDrag.incomingEl.remove();
+        mushafDrag.incomingEl = null;
+    }
+    mushafDrag.dir = dir;
+    mushafDrag.neighborPage = mushafCurrentPage + dir;
+    mushafDrag.neighborSvg = null;
+    if (mushafDrag.neighborPage < 1 || mushafDrag.neighborPage > HAFS_MAX_PAGE) return; // لا صفحة مجاورة (طرف المصحف)
+
+    const el = document.createElement('div');
+    el.className = 'mushaf-page-wrap mushaf-page-incoming mushaf-dragging';
+    track.appendChild(el);
+    mushafDrag.incomingEl = el;
+
+    const myPage = mushafDrag.neighborPage;
+    fetchMushafPageSvg(myPage).then(svg => {
+        if (!mushafDrag || mushafDrag.incomingEl !== el) return; // تغيّر الاتجاه أو انتهى السحب
+        mushafDrag.neighborSvg = svg;
+        if (svg) {
+            el.innerHTML = svg;
+            const svgEl = el.querySelector('svg');
+            if (svgEl) {
+                svgEl.removeAttribute('width');
+                svgEl.removeAttribute('height');
+                svgEl.style.width = '100%';
+                svgEl.style.height = 'auto';
+                svgEl.style.display = 'block';
+            }
+        }
+    });
+}
+
+function mushafDragOnStart(clientX) {
+    const track = document.getElementById('mushaf-page-track');
+    const wrap = document.getElementById('mushaf-page-wrap');
+    if (!track || !wrap || mushafCurrentPage === null) return;
+    closeAyahActionsMenu();
+    wrap.classList.remove('mushaf-snap');
+    wrap.classList.add('mushaf-dragging');
+    mushafDrag = {
+        startX: clientX,
+        startTime: Date.now(),
+        dx: 0,
+        dir: 0,
+        wrap,
+        incomingEl: null,
+        neighborPage: null,
+        neighborSvg: null,
+        width: track.clientWidth || 1,
+        horizontal: null,
+        startY: null,
+    };
+}
+
+function mushafDragOnMove(clientX, clientY) {
+    if (!mushafDrag) return false;
+    const rawDx = clientX - mushafDrag.startX;
+
+    // تحديد ما إذا كانت الحركة أفقية (تقليب صفحة) أم رأسية (تجاهلها) عند أول تحرك واضح
+    if (mushafDrag.horizontal === null) {
+        if (mushafDrag.startY === null) mushafDrag.startY = clientY;
+        const dy = clientY - mushafDrag.startY;
+        if (Math.abs(rawDx) < 6 && Math.abs(dy) < 6) return false;
+        mushafDrag.horizontal = Math.abs(rawDx) > Math.abs(dy);
+        if (!mushafDrag.horizontal) return false; // حركة رأسية، لا تقليب
+    }
+    if (!mushafDrag.horizontal) return false;
+
+    let dx = rawDx;
+    const dir = dx < 0 ? -1 : 1;
+    mushafDragEnsureIncoming(dir);
+
+    // لا توجد صفحة مجاورة (بداية/نهاية المصحف): مقاومة خفيفة بدل حركة حرة كاملة
+    if (!mushafDrag.incomingEl) dx *= 0.35;
+
+    mushafDrag.dx = dx;
+    mushafDragApply();
+    return true;
+}
+
+function mushafDragOnEnd() {
+    if (!mushafDrag) return;
+    const drag = mushafDrag;
+    const { wrap, incomingEl, dx, dir, width } = drag;
+    const elapsed = Math.max(1, Date.now() - drag.startTime);
+    const velocity = Math.abs(dx) / elapsed; // بكسل/ملّي‌ثانية
+    const threshold = Math.min(width * 0.22, 90);
+    const isQuickFlick = Math.abs(dx) > 24 && velocity > 0.45;
+    const shouldCommit = !!incomingEl && (Math.abs(dx) > threshold || isQuickFlick);
+
+    wrap.classList.remove('mushaf-dragging');
+    wrap.classList.add('mushaf-snap');
+    if (incomingEl) {
+        incomingEl.classList.remove('mushaf-dragging');
+        incomingEl.classList.add('mushaf-snap');
+    }
+
+    if (shouldCommit) {
+        wrap.style.transform = `translateX(${dir * width}px)`;
+        incomingEl.style.transform = 'translateX(0px)';
+        const finish = () => {
+            wrap.classList.remove('mushaf-snap');
+            wrap.style.transform = '';
+            if (drag.neighborSvg) {
+                wrap.innerHTML = drag.neighborSvg;
+                mushafCurrentPage = drag.neighborPage;
+                injectMushafHitLayer(wrap);
+            }
+            incomingEl.remove();
+            mushafFollowAudio = false;
+            updateMushafFollowBtnUI();
+            if (mushafDrag === drag) mushafDrag = null;
+        };
+        // إن لم تكن الصفحة المجاورة قد وصلت بعد (شبكة بطيئة)، ننتظر وصولها قبل الإكمال الفعلي
+        if (drag.neighborSvg) {
+            wrap.addEventListener('transitionend', finish, { once: true });
+        } else {
+            fetchMushafPageSvg(drag.neighborPage).then(svg => {
+                drag.neighborSvg = svg;
+                finish();
+            });
+        }
+    } else {
+        wrap.style.transform = '';
+        if (incomingEl) incomingEl.style.transform = `translateX(${-dir * width}px)`;
+        const cancel = () => {
+            wrap.classList.remove('mushaf-snap');
+            if (incomingEl) incomingEl.remove();
+            if (mushafDrag === drag) mushafDrag = null;
+        };
+        wrap.addEventListener('transitionend', cancel, { once: true });
+    }
+}
+
+function bindMushafDrag(view) {
+    view.addEventListener('touchstart', (e) => {
+        mushafDragOnStart(e.touches[0].clientX);
+        if (mushafDrag) mushafDrag.startY = e.touches[0].clientY;
+    }, { passive: true });
+
+    view.addEventListener('touchmove', (e) => {
+        if (!mushafDrag) return;
+        const moved = mushafDragOnMove(e.touches[0].clientX, e.touches[0].clientY);
+        if (moved && e.cancelable) e.preventDefault(); // يمنع تمرير الصفحة عمودياً أثناء التقليب الأفقي فقط
+    }, { passive: false });
+
+    view.addEventListener('touchend', () => {
+        mushafDragOnEnd();
+    }, { passive: true });
+
+    view.addEventListener('touchcancel', () => {
+        mushafDragOnEnd();
+    }, { passive: true });
+}
+
 function buildMushafNavUI() {
     if (mushafNavUIBuilt) return;
     const view = document.getElementById('mushaf-page-view');
@@ -692,19 +866,9 @@ function buildMushafNavUI() {
         player.appendChild(followBtn);
     }
 
-    // تقليب الصفحة بالسحب (سوايب) بالإصبع فوق صورة الصفحة نفسها فقط، دون أزرار
-    let touchStartX = null;
-    view.addEventListener('touchstart', (e) => {
-        touchStartX = e.touches[0].clientX;
-    }, { passive: true });
-    view.addEventListener('touchend', (e) => {
-        if (touchStartX === null) return;
-        const dx = e.changedTouches[0].clientX - touchStartX;
-        touchStartX = null;
-        if (Math.abs(dx) < 40) return; // سحب قصير جداً، تجاهله
-        if (dx < 0) goToMushafPage(-1); // سحب لليسار → الصفحة السابقة
-        else goToMushafPage(1);         // سحب لليمين → الصفحة التالية
-    }, { passive: true });
+    // تقليب الصفحة بالسحب (سوايب) بالإصبع فوق صورة الصفحة نفسها فقط، دون أزرار،
+    // مع تحريك الصفحة مع الإصبع لحظياً وكشف الصفحة التالية/السابقة تدريجياً أثناء السحب
+    bindMushafDrag(view);
 
     mushafNavUIBuilt = true;
 }

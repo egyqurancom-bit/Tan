@@ -1394,17 +1394,42 @@ body:has(.reading-view.show) #global-player .mushaf-follow-btn:not(.hide) {
     to   { opacity: 1; transform: translateY(0); }
 }
 
-.mushaf-page-wrap {
+.mushaf-page-track {
+    position: relative;
+    overflow: hidden;
     background: var(--bg-card);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
     padding: 4px;
-    transition: opacity 0.16s ease;
+    touch-action: pan-y;
+}
+
+.mushaf-page-wrap {
+    position: relative;
+    width: 100%;
+}
+
+/* الطبقة "القادمة" أثناء السحب: تُبنى وتُزال ديناميكياً فوق الصفحة الحالية */
+.mushaf-page-wrap.mushaf-page-incoming {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+/* أثناء تحريك الإصبع فعلياً: بلا أي تحوّل CSS، الحركة تتبع الإصبع حرفياً بلا تأخير */
+.mushaf-page-wrap.mushaf-dragging {
+    transition: none;
+}
+
+/* بعد رفع الإصبع: إمّا إكمال التقليب أو العودة لمكانها، بحركة سلسة قصيرة */
+.mushaf-page-wrap.mushaf-snap {
+    transition: transform 0.32s cubic-bezier(.22, .61, .36, 1);
 }
 
 .mushaf-page-wrap.page-turning {
     opacity: 0;
+    transition: opacity 0.16s ease;
 }
 
 .mushaf-page-wrap svg {
