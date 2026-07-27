@@ -267,6 +267,7 @@ const mushafAyahPageCache = {};      // "surah_ayah" -> pageNum
 let   mushafCurrentPage   = null;    // رقم الصفحة المعروضة حالياً في شاشة القراءة
 let   mushafFollowAudio   = true;    // true = الصفحة تتبع موضع القارئ تلقائياً، false = المستخدم يتصفح بحرية
 let   mushafNavUIBuilt    = false;   // هل تم إنشاء أزرار التنقل وزر العودة بعد
+let   mushafUpdateToken   = 0;       // يمنع تحديثاً متأخراً (كان لا يزال ينتظر الشبكة) من الكتابة فوق تظليل أحدث
 
 function pad3(n) { return String(n).padStart(3, '0'); }
 
@@ -394,7 +395,6 @@ function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
     const target = svgEl.querySelector(`.mushaf-ayah-hit[data-surah="${surahNumber}"][data-ayah="${ayahNumber}"]`);
     if (target) {
         target.classList.add('active-mushaf-ayah');
-        target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
 }
 
@@ -411,9 +411,13 @@ async function renderMushafPageManual(pageNum) {
         showToast(translations[currentLang].mushafPageNotFound);
         return false;
     }
+    // تلاشٍ بسيط وسلس عند تقليب الصفحة بدل الاستبدال الفوري المفاجئ
+    wrap.classList.add('page-turning');
+    await new Promise(resolve => setTimeout(resolve, 130));
     wrap.innerHTML = svgText;
     mushafCurrentPage = pageNum;
     injectMushafHitLayer(wrap);
+    requestAnimationFrame(() => wrap.classList.remove('page-turning'));
     return true;
 }
 
@@ -426,6 +430,7 @@ function updateMushafFollowBtnUI() {
 
 async function goToMushafPage(delta) {
     if (mushafCurrentPage === null) return;
+    ++mushafUpdateToken;
     const ok = await renderMushafPageManual(mushafCurrentPage + delta);
     if (!ok) return;
     mushafFollowAudio = false;
@@ -469,8 +474,8 @@ function buildMushafNavUI() {
         const dx = e.changedTouches[0].clientX - touchStartX;
         touchStartX = null;
         if (Math.abs(dx) < 40) return; // سحب قصير جداً، تجاهله
-        if (dx < 0) goToMushafPage(1);  // سحب لليسار → الصفحة التالية
-        else goToMushafPage(-1);        // سحب لليمين → الصفحة السابقة
+        if (dx < 0) goToMushafPage(-1); // سحب لليسار → الصفحة السابقة
+        else goToMushafPage(1);         // سحب لليمين → الصفحة التالية
     }, { passive: true });
 
     mushafNavUIBuilt = true;
@@ -479,6 +484,7 @@ function buildMushafNavUI() {
 // يحاول عرض صفحة المصحف الحقيقية للآية الحالية؛ إن لم تتوفر بياناتها بعد
 // على GitHub يعود العرض تلقائياً إلى قائمة النص العادية.
 async function updateMushafHighlight(seg) {
+    const myToken = ++mushafUpdateToken;
     const view = document.getElementById('mushaf-page-view');
     const wrap = document.getElementById('mushaf-page-wrap');
     const showFallback = () => {
@@ -505,6 +511,9 @@ async function updateMushafHighlight(seg) {
     }
 
     const pageNum = await findMushafPage(seg.surahNumber, seg.numberInSurah);
+    // تجاهل أي نتيجة متأخرة (كانت لا تزال تبحث عن الصفحة) إن كانت آية أحدث
+    // قد ظُلِّلت بالفعل أثناء انتظار هذا البحث، حتى لا "تعلق" آية قديمة مظللة
+    if (myToken !== mushafUpdateToken) return;
     if (!pageNum) {
         hideMushafView();
         showFallback();
@@ -516,6 +525,8 @@ async function updateMushafHighlight(seg) {
 
     if (mushafCurrentPage !== pageNum) {
         const svgText = await fetchMushafPageSvg(pageNum);
+        // نفس فكرة تجاهل الاستجابة المتأخرة، بعد انتظار تحميل SVG هذه المرة
+        if (myToken !== mushafUpdateToken) return;
         if (!svgText || !readingViewOpen) {
             hideMushafView();
             showFallback();

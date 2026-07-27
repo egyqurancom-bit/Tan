@@ -1400,6 +1400,11 @@ body:has(.reading-view.show) #global-player .mushaf-follow-btn:not(.hide) {
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
     padding: 4px;
+    transition: opacity 0.16s ease;
+}
+
+.mushaf-page-wrap.page-turning {
+    opacity: 0;
 }
 
 .mushaf-page-wrap svg {
