@@ -1313,7 +1313,7 @@ body.reading-active {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
-    padding: 20px 8px 180px;
+    padding: 20px 8px 260px;
 }
 
 .reading-loading {
@@ -1345,8 +1345,43 @@ body.reading-active {
 
 .mushaf-page-view {
     display: none;
-    max-width: 900px;
+    max-width: 760px;
     margin: 0 auto;
+}
+
+/* زر العودة لموضع القارئ: يعيش داخل المشغل نفسه، ولا يظهر إلا في نسخته
+   المصغّرة أثناء عرض شاشة القراءة (المصحف)، وفقط أثناء التصفح الحر */
+.mushaf-follow-btn {
+    display: none;
+    align-items: center;
+    gap: 5px;
+    position: absolute;
+    top: -32px;
+    right: 14px;
+    padding: 5px 13px;
+    border-radius: var(--radius-full);
+    border: none;
+    background: var(--accent-gold);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.68rem;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    z-index: 2;
+    animation: mushafFollowPop 0.25s ease-out;
+}
+
+.mushaf-follow-btn:hover { background: var(--accent-hover); }
+.mushaf-follow-btn.hide { display: none !important; }
+
+/* لا يظهر الزر إطلاقاً إلا داخل المشغل المصغّر الخاص بشاشة القراءة */
+body:has(.reading-view.show) #global-player .mushaf-follow-btn:not(.hide) {
+    display: flex;
+}
+
+@keyframes mushafFollowPop {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .mushaf-page-view.show {
@@ -1392,12 +1427,12 @@ body.reading-active {
 
 .mushaf-page-wrap svg .mushaf-ayah-hit.active-mushaf-ayah {
     fill: var(--accent-gold);
-    fill-opacity: 0.55;
+    fill-opacity: 0.4;
 }
 
 @media (min-width: 640px) {
     .mushaf-page-view {
-        max-width: 1100px;
+        max-width: 900px;
     }
 }
 
@@ -1446,7 +1481,7 @@ body.reading-active {
 }
 
 .ayah-span.active-ayah {
-    background: color-mix(in srgb, var(--accent-gold) 38%, transparent);
+    background: color-mix(in srgb, var(--accent-gold) 26%, transparent);
     color: var(--accent-hover);
     font-weight: 700;
     box-shadow: 0 0 0 1px var(--accent-gold) inset;

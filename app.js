@@ -107,7 +107,9 @@ const translations = {
         reconnected: "تمت استعادة الاتصال، جاري التشغيل...",
         disconnected: "انقطع الاتصال بالإنترنت",
         editionPrefix: "الرواية الحالية:",
-        fileNotFound: "عذراً، ملف الرواية غير متوفر حالياً"
+        fileNotFound: "عذراً، ملف الرواية غير متوفر حالياً",
+        mushafBackToReciter: "↺ العودة لموضع القارئ",
+        mushafPageNotFound: "هذه الصفحة غير متوفرة"
     },
     en: {
         langLabel: "AR",
@@ -128,7 +130,9 @@ const translations = {
         reconnected: "Connection restored, playing...",
         disconnected: "Internet connection lost",
         editionPrefix: "Current Edition:",
-        fileNotFound: "Sorry, the edition file is not available."
+        fileNotFound: "Sorry, the edition file is not available.",
+        mushafBackToReciter: "↺ Back to reciter",
+        mushafPageNotFound: "This page is not available"
     }
 };
 
@@ -261,6 +265,8 @@ const mushafPageSvgCache  = {};      // pageNum -> نص svg
 const mushafMissingPages  = new Set(); // صفحات تأكد عدم توفرها بعد
 const mushafAyahPageCache = {};      // "surah_ayah" -> pageNum
 let   mushafCurrentPage   = null;    // رقم الصفحة المعروضة حالياً في شاشة القراءة
+let   mushafFollowAudio   = true;    // true = الصفحة تتبع موضع القارئ تلقائياً، false = المستخدم يتصفح بحرية
+let   mushafNavUIBuilt    = false;   // هل تم إنشاء أزرار التنقل وزر العودة بعد
 
 function pad3(n) { return String(n).padStart(3, '0'); }
 
@@ -392,6 +398,84 @@ function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
     }
 }
 
+// ── تصفح حر لصفحات المصحف أثناء الاستماع ──
+// يسمح للمستخدم بتقليب الصفحات يدوياً (أزرار أو سحب) دون أن يقاطعه
+// التتبع التلقائي لموضع صوت القارئ، إلى أن يضغط على زر "العودة لموضع القارئ".
+
+async function renderMushafPageManual(pageNum) {
+    if (pageNum < 1 || pageNum > HAFS_MAX_PAGE) return false;
+    const wrap = document.getElementById('mushaf-page-wrap');
+    if (!wrap) return false;
+    const svgText = await fetchMushafPageSvg(pageNum);
+    if (!svgText) {
+        showToast(translations[currentLang].mushafPageNotFound);
+        return false;
+    }
+    wrap.innerHTML = svgText;
+    mushafCurrentPage = pageNum;
+    injectMushafHitLayer(wrap);
+    return true;
+}
+
+function updateMushafFollowBtnUI() {
+    const btn = document.getElementById('mushaf-follow-btn');
+    if (!btn) return;
+    btn.classList.toggle('hide', mushafFollowAudio);
+    btn.textContent = translations[currentLang].mushafBackToReciter;
+}
+
+async function goToMushafPage(delta) {
+    if (mushafCurrentPage === null) return;
+    const ok = await renderMushafPageManual(mushafCurrentPage + delta);
+    if (!ok) return;
+    mushafFollowAudio = false;
+    updateMushafFollowBtnUI();
+}
+
+function resumeMushafFollow() {
+    mushafFollowAudio = true;
+    updateMushafFollowBtnUI();
+    const data = juzDataCache[readingCacheKey()];
+    if (data && data.segments[currentAyahIndex]) {
+        updateMushafHighlight(data.segments[currentAyahIndex]);
+    }
+}
+
+function buildMushafNavUI() {
+    if (mushafNavUIBuilt) return;
+    const view = document.getElementById('mushaf-page-view');
+    const player = document.getElementById('global-player');
+    if (!view) return;
+
+    // زر العودة لموضع القارئ: يعيش داخل المشغل نفسه، ولا يظهر إلا
+    // أثناء عرض شاشة القراءة (المشغل المصغّر) وأثناء التصفح الحر فقط
+    if (player && !document.getElementById('mushaf-follow-btn')) {
+        const followBtn = document.createElement('button');
+        followBtn.type = 'button';
+        followBtn.id = 'mushaf-follow-btn';
+        followBtn.className = 'mushaf-follow-btn hide';
+        followBtn.textContent = translations[currentLang].mushafBackToReciter;
+        followBtn.addEventListener('click', resumeMushafFollow);
+        player.appendChild(followBtn);
+    }
+
+    // تقليب الصفحة بالسحب (سوايب) بالإصبع فوق صورة الصفحة نفسها فقط، دون أزرار
+    let touchStartX = null;
+    view.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    view.addEventListener('touchend', (e) => {
+        if (touchStartX === null) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        touchStartX = null;
+        if (Math.abs(dx) < 40) return; // سحب قصير جداً، تجاهله
+        if (dx < 0) goToMushafPage(1);  // سحب لليسار → الصفحة التالية
+        else goToMushafPage(-1);        // سحب لليمين → الصفحة السابقة
+    }, { passive: true });
+
+    mushafNavUIBuilt = true;
+}
+
 // يحاول عرض صفحة المصحف الحقيقية للآية الحالية؛ إن لم تتوفر بياناتها بعد
 // على GitHub يعود العرض تلقائياً إلى قائمة النص العادية.
 async function updateMushafHighlight(seg) {
@@ -406,6 +490,17 @@ async function updateMushafHighlight(seg) {
     if (!view || !wrap || !seg || seg.surahNumber === null || seg.numberInSurah === null) {
         hideMushafView();
         showFallback();
+        return;
+    }
+
+    // المستخدم يتصفح صفحات المصحف يدوياً حالياً: لا نقاطعه بالقفز التلقائي
+    // لصفحة موضع الصوت، ونُبقي الصفحة التي فتحها كما هي حتى يضغط على
+    // زر "العودة لموضع القارئ"
+    if (!mushafFollowAudio && mushafCurrentPage !== null) {
+        view.classList.add('show');
+        document.getElementById('ayat-container')?.classList.add('mushaf-hidden');
+        buildMushafNavUI();
+        updateMushafFollowBtnUI();
         return;
     }
 
@@ -434,6 +529,8 @@ async function updateMushafHighlight(seg) {
     highlightMushafAyah(wrap, seg.surahNumber, seg.numberInSurah);
     view.classList.add('show');
     document.getElementById('ayat-container')?.classList.add('mushaf-hidden');
+    buildMushafNavUI();
+    updateMushafFollowBtnUI();
 }
 
 // ── معالجة الأسماء ──
@@ -503,6 +600,7 @@ function toggleLanguage() {
     setPlaybackMode(playbackMode);
     updateDropdownUI();
     updateFocusHeader();
+    updateMushafFollowBtnUI();
 
     if (activeSurahsData.length > 0) renderSurahsList();
 
@@ -1394,6 +1492,7 @@ async function switchReadingJuz(id, editionNum, initialTime = null) {
     readingEditionNum = editionNum;
     currentAyahIndex = -1;
     mushafCurrentPage = null;
+    mushafFollowAudio = true;
     hideMushafView();
 
     const sData = activeSurahsData.find(s => s.id === id);
