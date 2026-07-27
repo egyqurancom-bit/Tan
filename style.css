@@ -1403,6 +1403,7 @@ body:has(.reading-view.show) #global-player .mushaf-follow-btn:not(.hide) {
     box-shadow: var(--shadow-md);
     padding: 4px;
     touch-action: pan-y;
+    aspect-ratio: 1 / 1.5; /* طول افتراضي بنسبة الصفحة الكاملة؛ يُضبط تلقائياً من JS بمجرد اكتشاف صفحة فعلية */
 }
 
 .mushaf-page-wrap {

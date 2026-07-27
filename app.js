@@ -281,6 +281,31 @@ let   mushafFollowAudio   = true;    // true = الصفحة تتبع موضع ا
 let   mushafNavUIBuilt    = false;   // هل تم إنشاء أزرار التنقل وزر العودة بعد
 let   mushafUpdateToken   = 0;       // يمنع تحديثاً متأخراً (كان لا يزال ينتظر الشبكة) من الكتابة فوق تظليل أحدث
 
+// بعض صفحات المصحف (كصفحة الفاتحة الأولى وبداية البقرة) تُصدَّر بملف svg
+// أقصر ارتفاعاً من باقي الصفحات (لقلة السطور/الزخرفة)، فتبدو بطاقة "نصف صفحة".
+// نتتبّع هنا أطول نسبة ارتفاع/عرض رأيناها فعلياً بين كل الصفحات المحمَّلة،
+// ونفرضها كحدّ أدنى لطول بطاقة الصفحة حتى تبدو كل الصفحات بنفس الطول الكامل
+// المعتاد، وما يتبقى من فراغ أسفل الصفحات القصيرة يظهر كخلفية بطاقة بيضاء
+// طبيعية (تماماً كما تبدو في المصحف الورقي الحقيقي).
+let mushafPageRatio = 1.5; // نسبة افتراضية معقولة إلى حين اكتشاف صفحة كاملة فعلية
+function noteMushafPageRatio(svgText) {
+    if (!svgText) return;
+    let w, h;
+    const vb = svgText.match(/viewBox=["']\s*[\-\d.]+\s+[\-\d.]+\s+([\d.]+)\s+([\d.]+)/);
+    if (vb) { w = parseFloat(vb[1]); h = parseFloat(vb[2]); }
+    if (!w || !h) {
+        const wh = svgText.match(/<svg[^>]*\swidth=["']([\d.]+)[^"']*["'][^>]*\sheight=["']([\d.]+)[^"']*["']/);
+        if (wh) { w = parseFloat(wh[1]); h = parseFloat(wh[2]); }
+    }
+    if (!w || !h) return;
+    const ratio = h / w;
+    if (ratio > mushafPageRatio + 0.01) {
+        mushafPageRatio = ratio;
+        const track = document.getElementById('mushaf-page-track');
+        if (track) track.style.aspectRatio = `1 / ${mushafPageRatio}`;
+    }
+}
+
 function pad3(n) { return String(n).padStart(3, '0'); }
 
 async function fetchMushafPageJson(pageNum) {
@@ -308,6 +333,7 @@ async function fetchMushafPageSvg(pageNum) {
         if (!res.ok) throw new Error('404');
         const text = await res.text();
         mushafPageSvgCache[pageNum] = text;
+        noteMushafPageRatio(text);
         return text;
     } catch (e) {
         return null;
