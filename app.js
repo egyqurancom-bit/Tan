@@ -487,6 +487,13 @@ async function updateMushafHighlight(seg) {
     const myToken = ++mushafUpdateToken;
     const view = document.getElementById('mushaf-page-view');
     const wrap = document.getElementById('mushaf-page-wrap');
+
+    // إزالة أي تظليل قديم فوراً (بشكل متزامن) حتى لا تبقى الآية السابقة
+    // مظللة أثناء انتظار تحديد/تحميل صفحة المصحف الجديدة بشكل غير متزامن،
+    // أو في حال تعذّر تحديثها لأي سبب
+    wrap?.querySelectorAll('.mushaf-ayah-hit.active-mushaf-ayah')
+        .forEach(el => el.classList.remove('active-mushaf-ayah'));
+
     const showFallback = () => {
         if (!readingViewOpen) return;
         const data = juzDataCache[readingCacheKey()];
@@ -500,14 +507,21 @@ async function updateMushafHighlight(seg) {
     }
 
     // المستخدم يتصفح صفحات المصحف يدوياً حالياً: لا نقاطعه بالقفز التلقائي
-    // لصفحة موضع الصوت، ونُبقي الصفحة التي فتحها كما هي حتى يضغط على
-    // زر "العودة لموضع القارئ"
+    // لصفحة موضع الصوت. لكن لو وصل القارئ فعلياً لنفس الصفحة التي يقف
+    // عندها المستخدم، فلا داعي لإبقائه بمعزل عن التظليل — نظلل الآية هنا
+    // مباشرة ونعيد تفعيل "المتابعة" تلقائياً دون انتظار ضغطه على الزر
     if (!mushafFollowAudio && mushafCurrentPage !== null) {
-        view.classList.add('show');
-        document.getElementById('ayat-container')?.classList.add('mushaf-hidden');
-        buildMushafNavUI();
+        const livePageNum = await findMushafPage(seg.surahNumber, seg.numberInSurah);
+        if (myToken !== mushafUpdateToken) return;
+        if (livePageNum !== mushafCurrentPage) {
+            view.classList.add('show');
+            document.getElementById('ayat-container')?.classList.add('mushaf-hidden');
+            buildMushafNavUI();
+            updateMushafFollowBtnUI();
+            return;
+        }
+        mushafFollowAudio = true;
         updateMushafFollowBtnUI();
-        return;
     }
 
     const pageNum = await findMushafPage(seg.surahNumber, seg.numberInSurah);
@@ -1566,6 +1580,13 @@ function seekToAyah(idx) {
     if (readingJuzNum === null) return;
     const data = juzDataCache[readingCacheKey()];
     if (!data || !data.segments[idx]) return;
+
+    // الضغط على آية يعني أن المستخدم يريد متابعة القارئ طبيعياً من هنا،
+    // حتى لو كان قد تصفّح صفحات المصحف يدوياً قبل ذلك
+    if (!mushafFollowAudio) {
+        mushafFollowAudio = true;
+        updateMushafFollowBtnUI();
+    }
 
     const seg = data.segments[idx];
 
