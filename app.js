@@ -341,6 +341,21 @@ function hideMushafView() {
     document.getElementById('ayat-container')?.classList.remove('mushaf-hidden');
 }
 
+// بعض ملفات hafs/json تخزّن إحداثيات الآية كقائمة نقاط بسيطة تصلح لعنصر
+// <polygon> (شكل واحد متصل)، بينما ملفات أخرى (للآيات الممتدة على أكثر من
+// سطر) تخزّنها كصيغة SVG path كاملة (M...Z M...Z) لتمثيل أكثر من مستطيل
+// منفصل. هذه الدالة توحّد الصيغتين إلى "d" صالحة لعنصر <path> دائماً.
+function mushafPolygonToPathData(raw) {
+    if (!raw) return '';
+    const str = raw.trim();
+    // لو الصيغة فيها بالفعل أوامر path (M/L/Z) نستخدمها كما هي
+    if (/[MLZ]/i.test(str)) return str;
+    // وإلا فهي قائمة نقاط بسيطة "x1,y1 x2,y2 ..." نحوّلها إلى path مغلق
+    const points = str.split(/\s+/).filter(Boolean);
+    if (!points.length) return '';
+    return `M ${points.join(' L ')} Z`;
+}
+
 function injectMushafHitLayer(wrap, pageData) {
     const svgEl = wrap.querySelector('svg');
     if (!svgEl || !pageData) return;
@@ -354,12 +369,12 @@ function injectMushafHitLayer(wrap, pageData) {
     const layer = document.createElementNS(ns, 'g');
     layer.setAttribute('id', 'mushaf-hit-layer');
     pageData.forEach(a => {
-        const poly = document.createElementNS(ns, 'polygon');
-        poly.setAttribute('points', a.polygon);
-        poly.setAttribute('class', 'mushaf-ayah-hit');
-        poly.dataset.surah = a.surahNumber;
-        poly.dataset.ayah  = a.ayahNumber;
-        layer.appendChild(poly);
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', mushafPolygonToPathData(a.polygon));
+        path.setAttribute('class', 'mushaf-ayah-hit');
+        path.dataset.surah = a.surahNumber;
+        path.dataset.ayah  = a.ayahNumber;
+        layer.appendChild(path);
     });
     svgEl.appendChild(layer);
 
