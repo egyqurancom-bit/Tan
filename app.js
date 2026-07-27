@@ -310,10 +310,12 @@ async function findMushafPage(surahNumber, ayahNumber) {
     if (mushafAyahPageCache[key] !== undefined) return mushafAyahPageCache[key];
 
     // أسرع مسار: تحقق من الصفحة المعروضة حالياً ثم التي تليها (حالة الاستماع المتسلسل)
-    for (const candidate of [mushafCurrentPage, mushafCurrentPage ? mushafCurrentPage + 1 : null]) {
-        if (!candidate) continue;
-        const data = await fetchMushafPageJson(candidate);
-        if (data && ayahIsWithinPage(data, surahNumber, ayahNumber)) return candidate;
+    // يتم جلبهما بالتوازي (لا بالتتابع) لتقليل زمن الانتظار عند فتح الصفحة
+    const fastCandidates = [mushafCurrentPage, mushafCurrentPage ? mushafCurrentPage + 1 : null].filter(Boolean);
+    const fastResults = await Promise.all(fastCandidates.map(fetchMushafPageJson));
+    for (let i = 0; i < fastCandidates.length; i++) {
+        const data = fastResults[i];
+        if (data && ayahIsWithinPage(data, surahNumber, ayahNumber)) return fastCandidates[i];
     }
 
     // تقدير أولي لموقع الصفحة: بحسب الجزء إن كانت الرواية الحالية بنظام الأجزاء (السوسي)،
@@ -1440,7 +1442,10 @@ function closeReadingView(fromHistory = false) {
     
     // إعادة تفعيل التمرير للصفحة الرئيسية عند الإغلاق
     document.body.classList.remove('reading-active');
-    mushafCurrentPage = null;
+    // ملاحظة: لا نصفّر mushafCurrentPage هنا. الصفحة (والـ SVG المُحقَّن بداخلها)
+    // تبقى كما هي في DOM، فإذا أعاد المستخدم فتح شاشة القراءة لنفس السورة
+    // تظهر الصفحة فوراً دون أي تأخير لإعادة تحليل/حقن SVG من جديد.
+    // يتم تصفيرها فقط عند التبديل الفعلي لسورة/جزء آخر داخل switchReadingJuz.
 
     if (!fromHistory && history.state && history.state.readingView) {
         history.back();

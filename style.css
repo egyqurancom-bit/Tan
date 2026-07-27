@@ -1313,7 +1313,7 @@ body.reading-active {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
-    padding: 20px 16px 180px;
+    padding: 20px 8px 180px;
 }
 
 .reading-loading {
@@ -1345,7 +1345,7 @@ body.reading-active {
 
 .mushaf-page-view {
     display: none;
-    max-width: 640px;
+    max-width: 900px;
     margin: 0 auto;
 }
 
@@ -1364,7 +1364,7 @@ body.reading-active {
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
-    padding: 8px;
+    padding: 4px;
 }
 
 .mushaf-page-wrap svg {
@@ -1386,18 +1386,18 @@ body.reading-active {
 }
 
 .mushaf-page-wrap svg .mushaf-ayah-hit:hover {
-    fill: var(--accent-glow);
-    fill-opacity: 0.35;
+    fill: var(--accent-gold);
+    fill-opacity: 0.32;
 }
 
 .mushaf-page-wrap svg .mushaf-ayah-hit.active-mushaf-ayah {
-    fill: var(--accent-glow);
-    fill-opacity: 0.35;
+    fill: var(--accent-gold);
+    fill-opacity: 0.55;
 }
 
 @media (min-width: 640px) {
     .mushaf-page-view {
-        max-width: 760px;
+        max-width: 1100px;
     }
 }
 
@@ -1446,9 +1446,10 @@ body.reading-active {
 }
 
 .ayah-span.active-ayah {
-    background: var(--accent-glow);
+    background: color-mix(in srgb, var(--accent-gold) 38%, transparent);
     color: var(--accent-hover);
-    box-shadow: 0 0 0 1px var(--border-mid) inset;
+    font-weight: 700;
+    box-shadow: 0 0 0 1px var(--accent-gold) inset;
 }
 
 .ayah-num {
