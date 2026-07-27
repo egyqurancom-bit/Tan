@@ -148,6 +148,20 @@
             </div>
             <div class="ayat-container" id="ayat-container"></div>
         </div>
+
+        <!-- شريط إجراءات الآية (يظهر بالضغط المطوّل على أي آية) -->
+        <div id="ayah-actions-menu" class="ayah-actions-menu" role="menu">
+            <button type="button" id="ayah-action-repeat" class="ayah-action-btn" role="menuitem">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                <span id="ayah-action-repeat-label">تكرار الآية</span>
+            </button>
+            <span class="ayah-action-sep" aria-hidden="true"></span>
+            <button type="button" id="ayah-action-copy" class="ayah-action-btn" role="menuitem">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span id="ayah-action-copy-label">نسخ الآية</span>
+            </button>
+            <div class="ayah-actions-arrow"></div>
+        </div>
     </div>
 
     <!-- نافذة التحميل -->

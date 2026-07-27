@@ -109,7 +109,13 @@ const translations = {
         editionPrefix: "الرواية الحالية:",
         fileNotFound: "عذراً، ملف الرواية غير متوفر حالياً",
         mushafBackToReciter: "↺ العودة لموضع القارئ",
-        mushafPageNotFound: "هذه الصفحة غير متوفرة"
+        mushafPageNotFound: "هذه الصفحة غير متوفرة",
+        repeatAyah: "تكرار الآية",
+        copyAyah: "نسخ الآية",
+        repeatOn: "تم تفعيل تكرار الآية",
+        repeatOff: "تم إيقاف تكرار الآية",
+        ayahCopied: "تم نسخ الآية",
+        ayahCopyFailed: "تعذر نسخ الآية، حاول مرة أخرى"
     },
     en: {
         langLabel: "AR",
@@ -132,7 +138,13 @@ const translations = {
         editionPrefix: "Current Edition:",
         fileNotFound: "Sorry, the edition file is not available.",
         mushafBackToReciter: "↺ Back to reciter",
-        mushafPageNotFound: "This page is not available"
+        mushafPageNotFound: "This page is not available",
+        repeatAyah: "Repeat Ayah",
+        copyAyah: "Copy Ayah",
+        repeatOn: "Ayah repeat enabled",
+        repeatOff: "Ayah repeat disabled",
+        ayahCopied: "Ayah copied",
+        ayahCopyFailed: "Couldn't copy the ayah, try again"
     }
 };
 
@@ -373,11 +385,13 @@ function injectMushafHitLayer(wrap) {
 
     if (!wrap.dataset.clickBound) {
         wrap.addEventListener('click', onMushafHitClick);
+        bindAyahLongPress(wrap);
         wrap.dataset.clickBound = '1';
     }
 }
 
 function onMushafHitClick(e) {
+    if (suppressNextAyahClick) { suppressNextAyahClick = false; return; }
     const target = e.target.closest('.mushaf-ayah-hit');
     if (!target) return;
     const surah = parseInt(target.dataset.surah, 10);
@@ -396,7 +410,220 @@ function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
     if (target) {
         target.classList.add('active-mushaf-ayah');
     }
+    syncRepeatPulseClass(wrap);
 }
+
+// ── الضغط المطوّل على آية: شريط إجراءات (تكرار / نسخ) ──
+
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE = 12;
+
+let longPressTimer = null;
+let longPressStart = null;
+let longPressTarget = null;
+let suppressNextAyahClick = false;
+let activeAyahMenuIndex = null;
+let activeAyahMenuTarget = null;
+let repeatingAyahIndex = null;
+
+function clearLongPressTimer() {
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    longPressStart = null;
+    longPressTarget = null;
+}
+
+function bindAyahLongPress(wrap) {
+    const point = (e) => e.touches ? e.touches[0] : e;
+
+    const onDown = (e) => {
+        const target = e.target.closest('.mushaf-ayah-hit');
+        if (!target) return;
+        const p = point(e);
+        longPressStart = { x: p.clientX, y: p.clientY };
+        longPressTarget = target;
+        longPressTimer = setTimeout(() => {
+            if (!longPressTarget) return;
+            suppressNextAyahClick = true;
+            openAyahActionsMenu(longPressTarget, longPressStart.x, longPressStart.y);
+            clearLongPressTimer();
+        }, LONG_PRESS_MS);
+    };
+    const onMove = (e) => {
+        if (!longPressStart) return;
+        const p = point(e);
+        const dx = Math.abs(p.clientX - longPressStart.x);
+        const dy = Math.abs(p.clientY - longPressStart.y);
+        if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) clearLongPressTimer();
+    };
+    const onUp = () => clearLongPressTimer();
+
+    wrap.addEventListener('touchstart', onDown, { passive: true });
+    wrap.addEventListener('touchmove', onMove, { passive: true });
+    wrap.addEventListener('touchend', onUp, { passive: true });
+    wrap.addEventListener('touchcancel', onUp, { passive: true });
+
+    wrap.addEventListener('mousedown', onDown);
+    wrap.addEventListener('mousemove', onMove);
+    wrap.addEventListener('mouseup', onUp);
+    wrap.addEventListener('mouseleave', onUp);
+}
+
+function openAyahActionsMenu(target, clientX, clientY) {
+    const surah = parseInt(target.dataset.surah, 10);
+    const ayah  = parseInt(target.dataset.ayah, 10);
+    const data  = juzDataCache[readingCacheKey()];
+    if (!data) return;
+    const idx = data.segments.findIndex(s => s.surahNumber === surah && s.numberInSurah === ayah);
+    if (idx < 0) return;
+
+    const menu = document.getElementById('ayah-actions-menu');
+    if (!menu) return;
+
+    activeAyahMenuTarget?.classList.remove('mushaf-ayah-pressed');
+    activeAyahMenuIndex = idx;
+    activeAyahMenuTarget = target;
+    target.classList.add('mushaf-ayah-pressed');
+    updateAyahActionsUI();
+
+    menu.classList.add('show');
+    menu.style.left = '-9999px';
+    menu.style.top = '-9999px';
+
+    requestAnimationFrame(() => {
+        const rect = menu.getBoundingClientRect();
+        let left = clientX - rect.width / 2;
+        let top = clientY - rect.height - 16;
+        let arrowBelow = false;
+        if (top < 8) { top = clientY + 16; arrowBelow = true; }
+        left = Math.max(8, Math.min(left, window.innerWidth - rect.width - 8));
+        top = Math.max(8, Math.min(top, window.innerHeight - rect.height - 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+        menu.classList.toggle('arrow-below', arrowBelow);
+        menu.style.setProperty('--arrow-offset', `${clientX - left}px`);
+    });
+
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch { /* صامت */ } }
+}
+
+function closeAyahActionsMenu() {
+    const menu = document.getElementById('ayah-actions-menu');
+    menu?.classList.remove('show');
+    activeAyahMenuTarget?.classList.remove('mushaf-ayah-pressed');
+    activeAyahMenuTarget = null;
+    activeAyahMenuIndex = null;
+}
+
+function updateAyahActionsUI() {
+    const repeatBtn = document.getElementById('ayah-action-repeat');
+    if (!repeatBtn) return;
+    const isActive = activeAyahMenuIndex !== null && repeatingAyahIndex === activeAyahMenuIndex;
+    repeatBtn.classList.toggle('active', isActive);
+}
+
+function syncRepeatPulseClass(wrap) {
+    const svgEl = wrap?.querySelector('svg');
+    if (!svgEl) return;
+    svgEl.querySelectorAll('.mushaf-ayah-hit.repeating-ayah').forEach(el => el.classList.remove('repeating-ayah'));
+    if (repeatingAyahIndex === null) return;
+    const data = juzDataCache[readingCacheKey()];
+    const seg = data?.segments[repeatingAyahIndex];
+    if (!seg || seg.surahNumber === null) return;
+    const target = svgEl.querySelector(`.mushaf-ayah-hit[data-surah="${seg.surahNumber}"][data-ayah="${seg.numberInSurah}"]`);
+    target?.classList.add('repeating-ayah');
+}
+
+function stopAyahRepeat() {
+    if (repeatingAyahIndex === null) return;
+    repeatingAyahIndex = null;
+    syncRepeatPulseClass(document.getElementById('mushaf-page-wrap'));
+    updateAyahActionsUI();
+}
+
+function toggleRepeatAyah(idx) {
+    const data = juzDataCache[readingCacheKey()];
+    const seg  = data?.segments[idx];
+    if (!seg || seg.start === null) return;
+
+    if (repeatingAyahIndex === idx) {
+        stopAyahRepeat();
+        showToast(translations[currentLang].repeatOff);
+        return;
+    }
+
+    repeatingAyahIndex = idx;
+    const sameTrack  = (playingSurahId === readingJuzNum && playingEditionId === readingEditionNum && audioInstance.src);
+    const withinAyah = sameTrack && audioInstance.currentTime >= seg.start &&
+        (seg.end === null || seg.end === undefined || audioInstance.currentTime < seg.end);
+    if (!withinAyah) seekToAyah(idx);
+
+    syncRepeatPulseClass(document.getElementById('mushaf-page-wrap'));
+    updateAyahActionsUI();
+    showToast(translations[currentLang].repeatOn);
+}
+
+function checkAyahRepeat() {
+    if (repeatingAyahIndex === null) return;
+    if (readingJuzNum === null || playingSurahId !== readingJuzNum || playingEditionId !== readingEditionNum) return;
+    const data = juzDataCache[readingCacheKey()];
+    const seg  = data?.segments[repeatingAyahIndex];
+    if (!seg || seg.start === null) return;
+    const nextSeg = data.segments[repeatingAyahIndex + 1];
+    const endTime = (seg.end !== null && seg.end !== undefined) ? seg.end : (nextSeg ? nextSeg.start : null);
+    if (endTime !== null && audioInstance.currentTime >= endTime - 0.05) {
+        audioInstance.currentTime = seg.start;
+        if (audioInstance.paused) audioInstance.play().catch(() => {});
+    }
+}
+
+async function fetchAyahTextForCopy(surahNumber, ayahNumber) {
+    const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahNumber}:${ayahNumber}/quran-uthmani`);
+    if (!res.ok) throw new Error('network');
+    const json = await res.json();
+    const text = json?.data?.text;
+    const surahNameAr = json?.data?.surah?.name;
+    if (!text) throw new Error('empty');
+    return { text, surahNameAr, numberInSurah: json?.data?.numberInSurah ?? ayahNumber };
+}
+
+async function copyAyahAtIndex(idx) {
+    const data = juzDataCache[readingCacheKey()];
+    const seg  = data?.segments[idx];
+    if (!seg || seg.surahNumber === null) return;
+
+    try {
+        const { text, surahNameAr, numberInSurah } = await fetchAyahTextForCopy(seg.surahNumber, seg.numberInSurah);
+        const refLabel = currentLang === 'ar'
+            ? `${surahNameAr || surahNamesEn[seg.surahNumber]} (${numberInSurah})`
+            : `${surahNamesEn[seg.surahNumber]} (${numberInSurah})`;
+        await navigator.clipboard.writeText(`${text}\n${refLabel}`);
+        showToast(translations[currentLang].ayahCopied);
+    } catch {
+        showToast(translations[currentLang].ayahCopyFailed);
+    }
+}
+
+document.getElementById('ayah-action-repeat')?.addEventListener('click', () => {
+    if (activeAyahMenuIndex === null) return;
+    toggleRepeatAyah(activeAyahMenuIndex);
+    closeAyahActionsMenu();
+});
+
+document.getElementById('ayah-action-copy')?.addEventListener('click', () => {
+    if (activeAyahMenuIndex === null) return;
+    copyAyahAtIndex(activeAyahMenuIndex);
+    closeAyahActionsMenu();
+});
+
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('ayah-actions-menu');
+    if (!menu || !menu.classList.contains('show')) return;
+    if (menu.contains(e.target) || e.target.closest('.mushaf-ayah-hit')) return;
+    closeAyahActionsMenu();
+});
+document.getElementById('ayat-scroll')?.addEventListener('scroll', closeAyahActionsMenu, { passive: true });
+window.addEventListener('resize', closeAyahActionsMenu);
+
 
 // ── تصفح حر لصفحات المصحف أثناء الاستماع ──
 // يسمح للمستخدم بتقليب الصفحات يدوياً (أزرار أو سحب) دون أن يقاطعه
@@ -431,6 +658,7 @@ function updateMushafFollowBtnUI() {
 async function goToMushafPage(delta) {
     if (mushafCurrentPage === null) return;
     ++mushafUpdateToken;
+    closeAyahActionsMenu();
     const ok = await renderMushafPageManual(mushafCurrentPage + delta);
     if (!ok) return;
     mushafFollowAudio = false;
@@ -620,6 +848,11 @@ function toggleLanguage() {
     if (dlModalTitle && (dlModalTitle.textContent.includes('جاري') || dlModalTitle.textContent.includes('Down'))) {
         dlModalTitle.textContent = translations[currentLang].downloading + "...";
     }
+
+    const repeatLabel = document.getElementById('ayah-action-repeat-label');
+    if (repeatLabel) repeatLabel.textContent = translations[currentLang].repeatAyah;
+    const copyLabel = document.getElementById('ayah-action-copy-label');
+    if (copyLabel) copyLabel.textContent = translations[currentLang].copyAyah;
 
     updatePageMeta();
     setPlaybackMode(playbackMode);
@@ -1166,6 +1399,7 @@ audioInstance.addEventListener('timeupdate', () => {
     const curr  = document.getElementById('curr-time');
     const total = document.getElementById('total-time');
 
+    checkAyahRepeat();
     updateHighlight(audioInstance.currentTime);
 
     if (audioInstance.duration && !isDragging) {
@@ -1518,6 +1752,8 @@ async function switchReadingJuz(id, editionNum, initialTime = null) {
     currentAyahIndex = -1;
     mushafCurrentPage = null;
     mushafFollowAudio = true;
+    stopAyahRepeat();
+    closeAyahActionsMenu();
     hideMushafView();
 
     const sData = activeSurahsData.find(s => s.id === id);
@@ -1563,6 +1799,7 @@ function showReadingView(juzId, editionNum, initialTime = null) {
 function closeReadingView(fromHistory = false) {
     readingViewOpen = false;
     document.getElementById('reading-view')?.classList.remove('show');
+    closeAyahActionsMenu();
     
     // إعادة تفعيل التمرير للصفحة الرئيسية عند الإغلاق
     document.body.classList.remove('reading-active');
@@ -1586,6 +1823,11 @@ function seekToAyah(idx) {
     if (!mushafFollowAudio) {
         mushafFollowAudio = true;
         updateMushafFollowBtnUI();
+    }
+
+    // الانتقال لآية أخرى غير التي كانت مكرَّرة يُلغي وضع التكرار تلقائياً
+    if (repeatingAyahIndex !== null && repeatingAyahIndex !== idx) {
+        stopAyahRepeat();
     }
 
     const seg = data.segments[idx];
