@@ -341,42 +341,26 @@ function hideMushafView() {
     document.getElementById('ayat-container')?.classList.remove('mushaf-hidden');
 }
 
-// بعض ملفات hafs/json تخزّن إحداثيات الآية كقائمة نقاط بسيطة تصلح لعنصر
-// <polygon> (شكل واحد متصل)، بينما ملفات أخرى (للآيات الممتدة على أكثر من
-// سطر) تخزّنها كصيغة SVG path كاملة (M...Z M...Z) لتمثيل أكثر من مستطيل
-// منفصل. هذه الدالة توحّد الصيغتين إلى "d" صالحة لعنصر <path> دائماً.
-function mushafPolygonToPathData(raw) {
-    if (!raw) return '';
-    const str = raw.trim();
-    // لو الصيغة فيها بالفعل أوامر path (M/L/Z) نستخدمها كما هي
-    if (/[MLZ]/i.test(str)) return str;
-    // وإلا فهي قائمة نقاط بسيطة "x1,y1 x2,y2 ..." نحوّلها إلى path مغلق
-    const points = str.split(/\s+/).filter(Boolean);
-    if (!points.length) return '';
-    return `M ${points.join(' L ')} Z`;
-}
-
-function injectMushafHitLayer(wrap, pageData) {
+// كل ملف hafs/svg يحوي بالفعل عناصر <path class="ayahPolygon"> مرسومة مسبقاً
+// لكل آية في الصفحة، وعليها خاصيتا surah وayah مباشرة. هذه العناصر مضمونة
+// التطابق التام مع رسم الصفحة (لأنها جزء من نفس ملف الرسم)، فنستخدمها كما هي
+// بدل الاعتماد على ملفات hafs/json المنفصلة (التي قد تختلف صيغتها بين صفحة
+// وأخرى وتسبب كسر التظليل).
+function injectMushafHitLayer(wrap) {
     const svgEl = wrap.querySelector('svg');
-    if (!svgEl || !pageData) return;
+    if (!svgEl) return;
     svgEl.removeAttribute('width');
     svgEl.removeAttribute('height');
     svgEl.style.width  = '100%';
     svgEl.style.height = 'auto';
     svgEl.style.display = 'block';
 
-    const ns = 'http://www.w3.org/2000/svg';
-    const layer = document.createElementNS(ns, 'g');
-    layer.setAttribute('id', 'mushaf-hit-layer');
-    pageData.forEach(a => {
-        const path = document.createElementNS(ns, 'path');
-        path.setAttribute('d', mushafPolygonToPathData(a.polygon));
-        path.setAttribute('class', 'mushaf-ayah-hit');
-        path.dataset.surah = a.surahNumber;
-        path.dataset.ayah  = a.ayahNumber;
-        layer.appendChild(path);
+    const items = svgEl.querySelectorAll('.ayahPolygon');
+    items.forEach(el => {
+        el.classList.add('mushaf-ayah-hit');
+        el.dataset.surah = el.getAttribute('surah');
+        el.dataset.ayah  = el.getAttribute('ayah');
     });
-    svgEl.appendChild(layer);
 
     if (!wrap.dataset.clickBound) {
         wrap.addEventListener('click', onMushafHitClick);
@@ -396,10 +380,10 @@ function onMushafHitClick(e) {
 }
 
 function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
-    const layer = wrap.querySelector('#mushaf-hit-layer');
-    if (!layer) return;
-    layer.querySelectorAll('.mushaf-ayah-hit.active-mushaf-ayah').forEach(el => el.classList.remove('active-mushaf-ayah'));
-    const target = layer.querySelector(`.mushaf-ayah-hit[data-surah="${surahNumber}"][data-ayah="${ayahNumber}"]`);
+    const svgEl = wrap.querySelector('svg');
+    if (!svgEl) return;
+    svgEl.querySelectorAll('.mushaf-ayah-hit.active-mushaf-ayah').forEach(el => el.classList.remove('active-mushaf-ayah'));
+    const target = svgEl.querySelector(`.mushaf-ayah-hit[data-surah="${surahNumber}"][data-ayah="${ayahNumber}"]`);
     if (target) {
         target.classList.add('active-mushaf-ayah');
         target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -411,14 +395,22 @@ function highlightMushafAyah(wrap, surahNumber, ayahNumber) {
 async function updateMushafHighlight(seg) {
     const view = document.getElementById('mushaf-page-view');
     const wrap = document.getElementById('mushaf-page-wrap');
+    const showFallback = () => {
+        if (!readingViewOpen) return;
+        const data = juzDataCache[readingCacheKey()];
+        renderReadingFallback(data || { segments: [] });
+    };
+
     if (!view || !wrap || !seg || seg.surahNumber === null || seg.numberInSurah === null) {
         hideMushafView();
+        showFallback();
         return;
     }
 
     const pageNum = await findMushafPage(seg.surahNumber, seg.numberInSurah);
     if (!pageNum) {
         hideMushafView();
+        showFallback();
         return;
     }
 
@@ -427,10 +419,14 @@ async function updateMushafHighlight(seg) {
 
     if (mushafCurrentPage !== pageNum) {
         const svgText = await fetchMushafPageSvg(pageNum);
-        if (!svgText || !readingViewOpen) { hideMushafView(); return; }
+        if (!svgText || !readingViewOpen) {
+            hideMushafView();
+            showFallback();
+            return;
+        }
         wrap.innerHTML = svgText;
         mushafCurrentPage = pageNum;
-        injectMushafHitLayer(wrap, mushafPageJsonCache[pageNum]);
+        injectMushafHitLayer(wrap);
     }
 
     highlightMushafAyah(wrap, seg.surahNumber, seg.numberInSurah);
@@ -1402,8 +1398,12 @@ async function switchReadingJuz(id, editionNum, initialTime = null) {
     const titleEl = document.getElementById('reading-juz-title');
     if (titleEl && sData) titleEl.textContent = getTrackName(sData);
 
+    // إفراغ الحاوية أثناء التحميل بدل عرض رسالة "لم تُرفع بعد" فوراً، لتفادي
+    // ظهورها للحظة قبل التأكد فعلياً من توفر صفحة المصحف الحقيقية أو عدمه
+    const container = document.getElementById('ayat-container');
+    if (container) container.innerHTML = '';
+
     const data = await loadReadingData(id, editionNum);
-    renderReadingFallback(data);
     updateHighlight(initialTime !== null ? initialTime : audioInstance.currentTime, true);
 }
 

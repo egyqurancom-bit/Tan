@@ -1345,7 +1345,7 @@ body.reading-active {
 
 .mushaf-page-view {
     display: none;
-    max-width: 460px;
+    max-width: 640px;
     margin: 0 auto;
 }
 
@@ -1364,7 +1364,7 @@ body.reading-active {
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
-    padding: 16px;
+    padding: 8px;
 }
 
 .mushaf-page-wrap svg {
@@ -1380,21 +1380,24 @@ body.reading-active {
 
 .mushaf-page-wrap svg .mushaf-ayah-hit {
     fill: transparent;
+    fill-opacity: 0;
     cursor: pointer;
-    transition: fill 0.35s ease;
+    transition: fill 0.35s ease, fill-opacity 0.35s ease;
 }
 
 .mushaf-page-wrap svg .mushaf-ayah-hit:hover {
     fill: var(--accent-glow);
+    fill-opacity: 0.35;
 }
 
 .mushaf-page-wrap svg .mushaf-ayah-hit.active-mushaf-ayah {
     fill: var(--accent-glow);
+    fill-opacity: 0.35;
 }
 
 @media (min-width: 640px) {
     .mushaf-page-view {
-        max-width: 520px;
+        max-width: 760px;
     }
 }
 
