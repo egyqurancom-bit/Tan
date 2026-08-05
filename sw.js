@@ -1,4 +1,4 @@
-const CACHE_NAME = 'moshaf-al-omma-v5.4'; // تغيير الرقم عند كل تحديث رئيسي (v2.5: شاشة القراءة والمزامنة)
+const CACHE_NAME = 'moshaf-al-omma-v5.5'; // تغيير الرقم عند كل تحديث رئيسي (v2.5: شاشة القراءة والمزامنة)
 
 // الملفات الأساسية
 const ASSETS_TO_CACHE = [
